@@ -1,0 +1,40 @@
+# bhumi (भूमि — "ground / earth") — sovereign userland platform backend
+# for the AGNOS compositor (aethersafha).
+#
+# WHAT bhumi OWNS
+# --------------
+# bhumi is the userland layer that sits BETWEEN aethersafha and the agnos
+# kernel — the sovereign replacement for the Linux compositor-backend trio
+# (DRM/KMS + libinput + logind). It is NOT XWayland and NOT a client-compat
+# bridge (that is `mehman`). bhumi is a *platform* backend: it gives the
+# compositor pixels-out, events-in, and a seat — nothing about clients.
+#
+#   Linux backend            →  bhumi module          →  agnos surface
+#   ------------------------    --------------------     ----------------------
+#   DRM/KMS (libdrm)         →  src/output.cyr        →  agnodrm → kernel blit#39 / FB
+#   libinput / evdev         →  src/input.cyr         →  kernel hid_poll input events
+#   logind session/seat      →  src/seat.cyr          →  native seat (sigil/kavach gate)
+#   (assembled backend)      →  src/backend.cyr       →  the handle aethersafha instantiates
+#
+# DELIBERATELY NOT HERE
+# ---------------------
+# - X11 / XWayland: AGNOS has zero native X11 clients; the bug class does not exist.
+# - foreign-app surface hosting: that is `mehman` (the swallow-stage compat backend).
+# - the Wayland protocol / client lifecycle: that is aethersafha proper.
+#
+# bhumi is the FIRST of the two compositor backends to build — aethersafha
+# sits directly on it. `mehman` is post-MVP.
+#
+# Re-exported via dist/bhumi.cyr (cyrius distlib). Domain modules land in the
+# sibling files above as the M0→M-n bites land (see docs/development/roadmap.md);
+# programs/smoke.cyr proves the include chain compiles end-to-end.
+
+# --- module include chain (uncomment as each module lands) ---
+# include "src/output.cyr"     # DRM/KMS scanout via agnodrm
+# include "src/input.cyr"      # kernel input events
+# include "src/seat.cyr"       # native seat / device-access gate
+# include "src/backend.cyr"    # assembled platform-backend handle
+
+# Scaffold sentinel — proves the lib header compiles before any module lands.
+# Removed when src/backend.cyr lands the real public surface.
+fn bhumi_scaffold_ok(): i64 { return 1; }

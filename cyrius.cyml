@@ -1,0 +1,17 @@
+[package]
+name = "bhumi"
+version = "${file:VERSION}"
+description = "bhumi — sovereign userland platform backend for the AGNOS compositor (output/input/seat against the agnos kernel)"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.3.5"
+
+[build]
+entry = "programs/smoke.cyr"
+output = "build/bhumi-smoke"
+
+[lib]
+modules = ["src/main.cyr"]
+
+[deps]
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert", "bench"]
