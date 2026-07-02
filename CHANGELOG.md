@@ -4,7 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.0] — 2026-07-02
+### Added
+- `src/seat.cyr` — the M3 sovereign seat / device-access gate (the logind/DRM-
+  master replacement, no uids). A `BhumiCap` capability (subject, device bitmask,
+  expiry, issuer) and a `BhumiSeat` (id, active, held cap); every device op routes
+  through the gate: `bhumi_seat_present` / `bhumi_seat_poll` succeed only for an
+  **active** seat holding a capability that grants that device and hasn't expired —
+  a background seat is DENIED. `bhumi_seat_handoff` enforces exactly one active
+  seat (VT-switch). bhumi *enforces* capabilities; sigil issues and kavach
+  sandboxes (lean-enforcer trust boundary, [ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md)).
+  +26 tests (143).
 
 **M2 — Input (keyboard).** The compositor's events-in path: drain the USB/xHCI
 HID keyboard via the agnos `kbscan`#42 syscall and normalize it into a key-event

@@ -1,0 +1,164 @@
+# @public — bhumi seat module: the sovereign device-access gate.
+#
+# seat.cyr is the sovereign replacement for the Linux logind/session half of the
+# compositor backend. It answers the DRM-master / VT-switch problem — "who is
+# allowed to touch the framebuffer and the keyboard right now?" — WITHOUT logind,
+# /etc/passwd, uids, or a setuid helper.
+#
+# A SEAT is one focus + its input device + its scanout: exactly one seat is
+# ACTIVE (foreground) at a time, and only the active seat holding a valid
+# CAPABILITY may drive the devices. Backgrounded seats are denied at the gate, so
+# a swapped-out session cannot read keystrokes or scribble on the screen.
+#
+# TRUST BOUNDARY (lean enforcer). bhumi ENFORCES capabilities; it does not mint or
+# cryptographically verify them. Capabilities are issued by the seat authority
+# (sigil, the AGNOS auth issuer) and process confinement is kavach's (the
+# sandbox) job. bhumi trusts a capability handed to it and checks possession +
+# scope + expiry. Each capability carries a reserved signature slot (BHUMI_CAP_SIG)
+# so a future bite can add an optional sigil Ed25519 verify hook without changing
+# this model or pulling the crypto stack into the platform layer.
+#
+# Flat domain module: no stdlib includes (see src/main.cyr). Depends on the
+# device ops in output.cyr / kbscan.cyr, which precede it in the include chain.
+
+# ================================================================
+# Devices a capability can grant (bitmask)
+# ================================================================
+
+enum BhumiDevice {
+    BHUMI_DEV_OUTPUT = 1;   # scanout / framebuffer (M1)
+    BHUMI_DEV_INPUT  = 2;   # keyboard (M2)
+    # BHUMI_DEV_POINTER = 4 — reserved until the kernel lands a pointer syscall
+}
+
+# Gate verdict for the gated device ops. Distinct from the device ops' own
+# returns (output: 0/-1, input: >=0) so a denial is never mistaken for a result.
+var BHUMI_SEAT_DENIED = 0 - 2;
+
+# ================================================================
+# BhumiCap — a capability (40-byte heap record)
+#
+#   +0   subject  who holds it (subject / session id)
+#   +8   devices  bitmask of BHUMI_DEV_* this grants
+#   +16  expiry   epoch seconds after which it is invalid (0 = never expires)
+#   +24  issuer   who granted it (provenance; the seat authority's id)
+#   +32  sig      reserved: pointer to a signature blob (0 = none) — the future
+#                 sigil-verify hook; unused by the lean enforcer
+# ================================================================
+
+enum BhumiCapLayout {
+    BHUMI_CAP_SUBJECT = 0;
+    BHUMI_CAP_DEVICES = 8;
+    BHUMI_CAP_EXPIRY  = 16;
+    BHUMI_CAP_ISSUER  = 24;
+    BHUMI_CAP_SIG     = 32;
+    BHUMI_CAP_SIZE    = 40;
+}
+
+# Mint a capability record. Returns the BhumiCap pointer, or 0 on OOM. (bhumi
+# ENFORCES these; the seat authority is responsible for their authenticity.)
+fn bhumi_cap_new(subject, devices, expiry, issuer): i64 {
+    var c = alloc(BHUMI_CAP_SIZE);
+    if (c == 0) { return 0; }
+    store64(c + BHUMI_CAP_SUBJECT, subject);
+    store64(c + BHUMI_CAP_DEVICES, devices);
+    store64(c + BHUMI_CAP_EXPIRY,  expiry);
+    store64(c + BHUMI_CAP_ISSUER,  issuer);
+    store64(c + BHUMI_CAP_SIG,     0);
+    return c;
+}
+
+fn bhumi_cap_subject(c): i64 { return load64(c + BHUMI_CAP_SUBJECT); }
+fn bhumi_cap_devices(c): i64 { return load64(c + BHUMI_CAP_DEVICES); }
+fn bhumi_cap_expiry(c): i64  { return load64(c + BHUMI_CAP_EXPIRY); }
+fn bhumi_cap_issuer(c): i64  { return load64(c + BHUMI_CAP_ISSUER); }
+
+# Does capability `c` grant `device` at time `now` (epoch seconds)? Pure. Returns
+# 1 if `c` is non-null, its device bit is set, and it has not expired; else 0.
+fn bhumi_cap_grants(c, device, now): i64 {
+    if (c == 0) { return 0; }
+    if ((load64(c + BHUMI_CAP_DEVICES) & device) == 0) { return 0; }
+    var exp = load64(c + BHUMI_CAP_EXPIRY);
+    if (exp != 0) {
+        if (now >= exp) { return 0; }
+    }
+    return 1;
+}
+
+# ================================================================
+# BhumiSeat — a seat (24-byte heap record)
+#
+#   +0   id      seat id
+#   +8   active  1 = foreground (holds the focus), 0 = background
+#   +16  cap     pointer to the held BhumiCap (0 = none)
+# ================================================================
+
+enum BhumiSeatLayout {
+    BHUMI_SEAT_ID     = 0;
+    BHUMI_SEAT_ACTIVE = 8;
+    BHUMI_SEAT_CAP    = 16;
+    BHUMI_SEAT_SIZE   = 24;
+}
+
+# Create a seat. Starts BACKGROUND (inactive) with no capability — it cannot
+# touch devices until it is both granted a capability and made active. Returns
+# the BhumiSeat pointer, or 0 on OOM.
+fn bhumi_seat_new(id): i64 {
+    var s = alloc(BHUMI_SEAT_SIZE);
+    if (s == 0) { return 0; }
+    store64(s + BHUMI_SEAT_ID,     id);
+    store64(s + BHUMI_SEAT_ACTIVE, 0);
+    store64(s + BHUMI_SEAT_CAP,    0);
+    return s;
+}
+
+fn bhumi_seat_id(s): i64     { return load64(s + BHUMI_SEAT_ID); }
+fn bhumi_seat_active(s): i64 { return load64(s + BHUMI_SEAT_ACTIVE); }
+fn bhumi_seat_cap(s): i64    { return load64(s + BHUMI_SEAT_CAP); }
+
+# Hand the seat a capability (the seat authority grants it). Returns 0.
+fn bhumi_seat_grant(s, cap): i64 { store64(s + BHUMI_SEAT_CAP, cap); return 0; }
+
+# May seat `s` access `device` at `now`? 1 iff the seat is ACTIVE and holds a
+# capability granting that device (unexpired). A background seat is always denied.
+fn bhumi_seat_can(s, device, now): i64 {
+    if (s == 0) { return 0; }
+    if (load64(s + BHUMI_SEAT_ACTIVE) == 0) { return 0; }
+    return bhumi_cap_grants(load64(s + BHUMI_SEAT_CAP), device, now);
+}
+
+# ================================================================
+# Foreground arbitration (VT-switch / hand-off)
+# ================================================================
+
+fn bhumi_seat_activate(s): i64   { if (s == 0) { return 0 - 1; } store64(s + BHUMI_SEAT_ACTIVE, 1); return 0; }
+fn bhumi_seat_deactivate(s): i64 { if (s == 0) { return 0 - 1; } store64(s + BHUMI_SEAT_ACTIVE, 0); return 0; }
+
+# Hand the foreground from `from` to `to`: `from` goes background (loses device
+# access immediately), `to` comes foreground. Either may be 0 (initial activate /
+# final release). Returns 0. This is the single point that enforces "exactly one
+# active seat" for a hand-off pair.
+fn bhumi_seat_handoff(from, to): i64 {
+    if (from != 0) { store64(from + BHUMI_SEAT_ACTIVE, 0); }
+    if (to != 0)   { store64(to + BHUMI_SEAT_ACTIVE, 1); }
+    return 0;
+}
+
+# ================================================================
+# Gated device ops — device access ONLY through the seat
+# ================================================================
+
+# Scan out `fb` through seat `s`, gated on output access at `now`. Returns
+# bhumi_output_present's result (0 on success), or BHUMI_SEAT_DENIED if the seat
+# may not scan out (background / no capability / expired).
+fn bhumi_seat_present(s, fb, now): i64 {
+    if (bhumi_seat_can(s, BHUMI_DEV_OUTPUT, now) == 0) { return BHUMI_SEAT_DENIED; }
+    return bhumi_output_present(fb);
+}
+
+# Poll input through seat `s`, gated on input access at `now`. Returns the event
+# count (>= 0), or BHUMI_SEAT_DENIED if the seat may not read input.
+fn bhumi_seat_poll(s, prev, out, max_ev, now): i64 {
+    if (bhumi_seat_can(s, BHUMI_DEV_INPUT, now) == 0) { return BHUMI_SEAT_DENIED; }
+    return bhumi_input_poll(prev, out, max_ev);
+}

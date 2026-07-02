@@ -274,6 +274,61 @@ fn main() {
     store8(&rbuf + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
     assert_eq(bhumi_input_process(&pv2, &rbuf, 11, &pevs, 8), 1, "11 bytes -> 1 whole report, 3 ignored");
 
+    # ----- seat.cyr — capability scope + expiry -------------------
+    test_group("seat.cyr — bhumi_cap");
+    var tnow = 1000;
+    var capO = bhumi_cap_new(7, BHUMI_DEV_OUTPUT, 0, 1);   # subject 7, output, never expires
+    assert_neq(capO, 0, "cap allocates");
+    assert_eq(bhumi_cap_subject(capO), 7,                "subject");
+    assert_eq(bhumi_cap_devices(capO), BHUMI_DEV_OUTPUT, "devices");
+    assert_eq(bhumi_cap_grants(capO, BHUMI_DEV_OUTPUT, tnow), 1, "grants output");
+    assert_eq(bhumi_cap_grants(capO, BHUMI_DEV_INPUT,  tnow), 0, "denies ungranted device");
+    assert_eq(bhumi_cap_grants(0,    BHUMI_DEV_OUTPUT, tnow), 0, "null cap denies");
+    var capE = bhumi_cap_new(7, BHUMI_DEV_OUTPUT, 2000, 1);   # expires at 2000
+    assert_eq(bhumi_cap_grants(capE, BHUMI_DEV_OUTPUT, 1999), 1, "valid before expiry");
+    assert_eq(bhumi_cap_grants(capE, BHUMI_DEV_OUTPUT, 2000), 0, "expired at expiry");
+    assert_eq(bhumi_cap_grants(capE, BHUMI_DEV_OUTPUT, 2001), 0, "expired after");
+
+    # ----- seat.cyr — the gate (active AND capability) ------------
+    test_group("seat.cyr — bhumi_seat_can");
+    var seatA = bhumi_seat_new(1);
+    assert_neq(seatA, 0, "seat allocates");
+    assert_eq(bhumi_seat_active(seatA), 0, "new seat starts background");
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 0, "background + no cap -> denied");
+    bhumi_seat_grant(seatA, capO);
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 0, "has cap but background -> denied");
+    bhumi_seat_activate(seatA);
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 1, "active + cap -> granted");
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_INPUT,  tnow), 0, "active but cap lacks input -> denied");
+    var capOI = bhumi_cap_new(7, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 1);
+    bhumi_seat_grant(seatA, capOI);
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_INPUT, tnow), 1, "output|input cap -> input granted");
+
+    # ----- seat.cyr — hand-off keeps exactly one active ----------
+    test_group("seat.cyr — bhumi_seat_handoff");
+    var seatB = bhumi_seat_new(2);
+    bhumi_seat_grant(seatB, capOI);
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 1, "A (fg) can output");
+    assert_eq(bhumi_seat_can(seatB, BHUMI_DEV_OUTPUT, tnow), 0, "B (bg) cannot");
+    bhumi_seat_handoff(seatA, seatB);
+    assert_eq(bhumi_seat_active(seatA), 0, "after handoff A is background");
+    assert_eq(bhumi_seat_active(seatB), 1, "after handoff B is foreground");
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 0, "A can no longer output");
+    assert_eq(bhumi_seat_can(seatB, BHUMI_DEV_OUTPUT, tnow), 1, "B now can output");
+
+    # ----- seat.cyr — device access ONLY through the gate --------
+    test_group("seat.cyr — gated present / poll");
+    var gfb = bhumi_fb_new(8, 8);
+    # seatB is active with output|input; authorized op returns the raw device
+    # result (host: -1 no framebuffer), NOT the denial sentinel.
+    assert_eq(bhumi_seat_present(seatB, gfb, tnow), bhumi_output_present(gfb), "authorized present == raw op (gate passed)");
+    assert_eq(bhumi_seat_present(seatA, gfb, tnow), BHUMI_SEAT_DENIED, "background seat present -> DENIED");
+    var gprev[8];
+    bhumi_input_init(&gprev);
+    var gevs[8];
+    assert_eq(bhumi_seat_poll(seatB, &gprev, &gevs, 1, tnow), 0, "authorized poll -> 0 events on host (gate passed)");
+    assert_eq(bhumi_seat_poll(seatA, &gprev, &gevs, 1, tnow), BHUMI_SEAT_DENIED, "background seat poll -> DENIED");
+
     return assert_summary();
 }
 

@@ -42,6 +42,12 @@ scaffolded 2026-06-29 via `cyrius init` (0.1.0).
 - `programs/input-demo.cyr` — **M2 acceptance artifact.** Polls the keyboard and
   prints each key (down/up + HID usage; Esc quits) on agnos; explanatory pass
   off-agnos.
+- `src/seat.cyr` — **M3 in progress.** Sovereign device-access gate (logind/DRM-
+  master replacement): `BhumiCap` (subject/devices/expiry/issuer) + `BhumiSeat`
+  (id/active/cap). Device ops route through `bhumi_seat_present` / `_poll`, which
+  only pass for an active seat holding a valid capability; `bhumi_seat_handoff`
+  keeps exactly one active. bhumi *enforces* capabilities; sigil issues, kavach
+  sandboxes ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
 
 **M1 (v0.2.0) and M2 (v0.3.0) shipped** — code-complete against the real ABIs and
 verified cross-target (host: 117 assertions + fuzz; agnos: emits `syscall`
@@ -52,9 +58,9 @@ reachable from host CI. **Pointer input is deferred** — no pointer syscall exi
 
 ## Tests
 
-- `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` / `pattern.cyr` /
-  `scanout.cyr` / `input.cyr` / `kbscan.cyr` + edge cases (117 assertions, passes
-  on `cyrius test`). Source-includes `src/main.cyr` (see
+- `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
+  `input` / `kbscan` / `seat` + edge cases (143 assertions, passes on
+  `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface
   (`cyrius fuzz`); holds to 200k+ iterations.

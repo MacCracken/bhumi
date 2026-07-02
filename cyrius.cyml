@@ -15,7 +15,7 @@ output = "build/bhumi-smoke"
 # dist/bhumi.cyr. src/main.cyr is the in-tree convenience entry that
 # includes these for smoke.cyr + tests — intentionally NOT listed here,
 # else its module bodies would duplicate in the dist bundle.
-modules = ["src/output.cyr", "src/scanout.cyr", "src/pattern.cyr", "src/input.cyr", "src/kbscan.cyr"]
+modules = ["src/output.cyr", "src/scanout.cyr", "src/pattern.cyr", "src/input.cyr", "src/kbscan.cyr", "src/seat.cyr"]
 
 [deps]
 stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert", "bench"]

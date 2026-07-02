@@ -20,3 +20,4 @@ Decisions about bhumi — what we chose, the context, and the consequences we ac
 ## Index
 
 - [0001 — Scan out via the agnos fbinfo/blit syscalls](0001-scanout-via-agnos-fbinfo-blit.md) — Accepted
+- [0002 — The seat is a lean capability enforcer, not a crypto verifier](0002-seat-lean-capability-enforcer.md) — Accepted
