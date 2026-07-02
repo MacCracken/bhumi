@@ -9,26 +9,35 @@
 
 ## Toolchain
 
-- **Cyrius pin**: `6.3.5` (in `cyrius.cyml [package].cyrius`)
+- **Cyrius pin**: `6.3.34` (in `cyrius.cyml [package].cyrius`; matches the active
+  toolchain). Bumped from 6.3.5 so `lib/` carries the agnos 1.51.0 syscall
+  surface — the `fbinfo`#38 / `blit`#39 scanout wrappers M1 needs.
 
 ## Source
 
 - `src/main.cyr` — lib header + convenience entry (includes domain modules;
   still carries the `bhumi_scaffold_ok` sentinel until M4).
-- `src/output.cyr` — **M1 in progress.** Pixel-production half: a software
-  `BhumiFb` framebuffer (XRGB8888) with construction, bounds-checked pixel
-  set/get, and clear. Kernel scanout seam (agnodrm → `blit#39`) not yet wired —
-  that ABI isn't in this checkout (agnos snapshot tops at 1.45.16 /
-  `winsize#60`; `#39` is an unassigned gap).
-- `src/pattern.cyr` — **M1 in progress.** Bring-up test patterns over a
-  `BhumiFb`: SMPTE-style color bars and a grayscale XOR gradient. The "known
-  test pattern" of the M1 acceptance gate, rendered in userland until scanout.
+- `src/output.cyr` — **M1.** Pixel-production half: a software `BhumiFb`
+  framebuffer (XRGB8888) with construction, bounds-checked pixel set/get, clear.
+- `src/scanout.cyr` — **M1.** Kernel handoff: scans a `BhumiFb` to the display
+  via agnos `fbinfo`#38 / `blit`#39 (`bhumi_output_present` / `_query` /
+  `_format_ok` + `bhumi_fbinfo_*`). Kernel calls are behind
+  `#ifdef CYRIUS_TARGET_AGNOS`; the host build stubs them (-1) and stays
+  testable. Cross-target verified: the `--agnos` binary emits `syscall`
+  `eax=38`/`39`. See [ADR 0001](../adr/0001-scanout-via-agnos-fbinfo-blit.md).
+- `src/pattern.cyr` — **M1.** Bring-up test patterns over a `BhumiFb`:
+  SMPTE-style color bars and a grayscale XOR gradient — the "known test pattern"
+  of the M1 acceptance gate.
+
+**M1 is code-complete against the real ABI.** Remaining for the v0.2.0 gate:
+end-to-end acceptance — a test pattern on a real (or QEMU) agnos framebuffer —
+which needs agnos hardware/emulator, not reachable from host CI.
 
 ## Tests
 
-- `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` framebuffer model +
-  `pattern.cyr` patterns (54 assertions, passes on `cyrius test`).
-  Source-includes `src/main.cyr` (see
+- `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` / `pattern.cyr` /
+  `scanout.cyr` (69 assertions, passes on `cyrius test`). Source-includes
+  `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `tests/bhumi.bcyr` — benchmarks: 720p color-bars / XOR full-frame paint
   throughput (`cyrius bench tests/bhumi.bcyr`).
@@ -38,7 +47,7 @@
 
 Direct (declared in `cyrius.cyml`):
 
-- stdlib — string, fmt, alloc, io, vec, str, syscalls, assert
+- stdlib — string, fmt, alloc, io, vec, str, syscalls, assert, bench
 
 ## Consumers
 

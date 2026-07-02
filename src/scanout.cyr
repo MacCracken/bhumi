@@ -1,0 +1,115 @@
+# @public — bhumi output scanout: the kernel handoff (agnos fbinfo#38 / blit#39).
+#
+# This is the second half of the M1 output module — the seam src/output.cyr's
+# BhumiFb was built behind. It pushes a finished software framebuffer to the
+# real display via two agnos kernel syscalls, and is the ONLY target-specific
+# code in bhumi. Everything but the two thin syscall wrappers is portable and
+# unit-tested on the host.
+#
+# The agnos scanout ABI (verified against agnos kernel/core/syscall.cyr, landed
+# agnos 1.51.0 / cyrius stdlib 6.3.34):
+#
+#   fbinfo(#38)  sys_fbinfo(buf, len) -> bytes written / -1
+#     Writes a 24-byte framebuffer-geometry struct (6 u32, little-endian):
+#       +0  width         pixels
+#       +4  height        pixels
+#       +8  pitch         bytes per scanline
+#       +12 bpp           bits per pixel (always 32)
+#       +16 pixel_format  0 = RGBX (bytes [R,G,B,X]), 1 = BGRX (bytes [B,G,R,X])
+#       +20 flags         bit 0 = framebuffer present
+#
+#   blit(#39)  sys_blit(src, w, h, dstxy) -> 0 / -1
+#     Raw-copies a w x h 32bpp block from `src` to the framebuffer. No format
+#     conversion — the caller supplies pixels in the byte order fbinfo reports.
+#     dstxy packs: x = dstxy & 0xFFFF, y = (dstxy>>16) & 0xFFFF,
+#     scale = (dstxy>>32) & 0xFF (the kernel treats scale 0 as 1x). Returns -1
+#     only when no framebuffer is present; fully off-screen blits clip to 0/ok.
+#
+# Format contract: BhumiFb stores XRGB8888 via store32, i.e. memory bytes
+# [B,G,R,X] — that IS agnos BGRX (pixel_format 1). So a raw blit is color-
+# correct against a BGRX framebuffer; against an RGBX one (pixel_format 0) the
+# R and B channels are swapped. Callers check bhumi_output_format_ok() first.
+#
+# Flat domain module: no stdlib includes (see src/main.cyr). Depends on the
+# BhumiFb accessors in src/output.cyr, which precedes it in the include chain.
+
+# ================================================================
+# fbinfo geometry struct (24 bytes, 6 u32 LE) + pixel-format values
+# ================================================================
+
+enum BhumiFbinfoLayout {
+    BHUMI_FBINFO_WIDTH  = 0;
+    BHUMI_FBINFO_HEIGHT = 4;
+    BHUMI_FBINFO_PITCH  = 8;
+    BHUMI_FBINFO_BPP    = 12;
+    BHUMI_FBINFO_PXFMT  = 16;
+    BHUMI_FBINFO_FLAGS  = 20;
+    BHUMI_FBINFO_SIZE   = 24;   # struct byte size (and the query buffer minimum)
+}
+
+enum BhumiPxFormat {
+    BHUMI_PXFMT_RGBX = 0;   # memory bytes [R,G,B,X]
+    BHUMI_PXFMT_BGRX = 1;   # memory bytes [B,G,R,X] — matches BhumiFb's store order
+}
+
+# ================================================================
+# Kernel seam — the ONLY target-specific code. Exactly one branch compiles.
+# ================================================================
+
+#ifdef CYRIUS_TARGET_AGNOS
+# Real agnos kernel calls. sys_fbinfo/sys_blit are the cyrius stdlib wrappers
+# over syscalls #38/#39 (agnos-only; on Linux #38/#39 mean something else, which
+# is why these live inside the target #ifdef).
+fn _bhumi_kfbinfo(info): i64 { return sys_fbinfo(info, BHUMI_FBINFO_SIZE); }
+fn _bhumi_kblit(src, w, h, dstxy): i64 { return sys_blit(src, w, h, dstxy); }
+#endif
+
+#ifndef CYRIUS_TARGET_AGNOS
+# Host / non-agnos: there is no kernel framebuffer. Report "unavailable" (-1) so
+# the portable logic above stays identical across targets and tests can run.
+fn _bhumi_kfbinfo(info): i64 { return 0 - 1; }
+fn _bhumi_kblit(src, w, h, dstxy): i64 { return 0 - 1; }
+#endif
+
+# ================================================================
+# fbinfo accessors (pure, portable, host-testable over a 24-byte buffer)
+# ================================================================
+
+fn bhumi_fbinfo_width(info): i64    { return load32(info + BHUMI_FBINFO_WIDTH); }
+fn bhumi_fbinfo_height(info): i64   { return load32(info + BHUMI_FBINFO_HEIGHT); }
+fn bhumi_fbinfo_pitch(info): i64    { return load32(info + BHUMI_FBINFO_PITCH); }
+fn bhumi_fbinfo_bpp(info): i64      { return load32(info + BHUMI_FBINFO_BPP); }
+fn bhumi_fbinfo_pxformat(info): i64 { return load32(info + BHUMI_FBINFO_PXFMT); }
+fn bhumi_fbinfo_present(info): i64  { return load32(info + BHUMI_FBINFO_FLAGS) & 1; }
+
+# ================================================================
+# Public API
+# ================================================================
+
+# Query framebuffer geometry into `info` (a buffer of >= BHUMI_FBINFO_SIZE
+# bytes). Returns bytes written (24) on success, or -1 if `info` is null, on a
+# non-agnos host, or when the kernel framebuffer is unavailable. On success,
+# read fields with the bhumi_fbinfo_* accessors.
+fn bhumi_output_query(info): i64 {
+    if (info == 0) { return 0 - 1; }
+    return _bhumi_kfbinfo(info);
+}
+
+# Whether a BhumiFb's pixel byte order matches what the framebuffer expects.
+# BhumiFb stores XRGB8888 -> memory bytes [B,G,R,X] == BGRX (1), so a raw blit
+# is color-correct iff the framebuffer reports BGRX. Returns 1 if a raw present
+# is correct, 0 if channels would need swapping (framebuffer is RGBX).
+fn bhumi_output_format_ok(info): i64 {
+    if (bhumi_fbinfo_pxformat(info) == BHUMI_PXFMT_BGRX) { return 1; }
+    return 0;
+}
+
+# Scan out framebuffer `fb` to the display at the top-left origin, unscaled.
+# dstxy = 0 -> x=0, y=0, scale=0 (kernel treats 0 as 1x). Returns 0 on success,
+# or -1 if `fb` is null or there is no framebuffer to scan out (non-agnos host,
+# or the agnos framebuffer is not up). Performs a raw 32bpp copy with no
+# conversion — verify byte order with bhumi_output_format_ok() first.
+fn bhumi_output_present(fb): i64 {
+    if (fb == 0) { return 0 - 1; }
+    return _bhumi_kblit(bhumi_fb_pixels(fb), bhumi_fb_width(fb), bhumi_fb_height(fb), 0);
+}

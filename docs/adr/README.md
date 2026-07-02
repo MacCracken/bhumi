@@ -19,4 +19,4 @@ Decisions about bhumi — what we chose, the context, and the consequences we ac
 
 ## Index
 
-_No ADRs yet. Add the first as `0001-kebab-case-title.md`._
+- [0001 — Scan out via the agnos fbinfo/blit syscalls](0001-scanout-via-agnos-fbinfo-blit.md) — Accepted
