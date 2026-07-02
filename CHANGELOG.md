@@ -4,6 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `src/input.cyr` — the HID-decode half of the M2 input module. A normalized
+  key-event model (`bhumi_key_event` + `bhumi_key_{pressed,usage}`) over **USB
+  HID usage codes** (Keyboard/Keypad page 0x07), and `bhumi_kbd_diff`, which
+  diffs two 8-byte HID boot keyboard reports into press/release events — release
+  is *derived* from report state (HID reports are state-based), not a wire
+  signal. Handles modifiers (0xE0-0xE7), held keys, and empty/rollover slots.
+  bhumi emits physical key events; layout/keysyms stay in the compositor.
+  Keyboards attach over USB/xHCI HID (agnos has no PS/2). The `kbscan`#42 kernel
+  drain seam is next; pointer input is deferred (no pointer syscall yet). +22
+  tests (108).
+
 ## [0.2.0] — 2026-07-02
 
 **M1 — Output.** The compositor's pixels-out path: allocate a software

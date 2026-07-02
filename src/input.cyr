@@ -1,0 +1,148 @@
+# @public — bhumi input module: the compositor's events-in path.
+#
+# input.cyr is the sovereign replacement for the Linux libinput/evdev half of
+# the compositor backend. Keyboards attach over USB/xHCI HID (agnos has no PS/2
+# and never will); the kernel drains the xHCI USB-HID ring and hands ring-3 the
+# HID data via kbscan#42. Like output.cyr this module has two halves:
+#
+#   1. HID DECODE (this bite) — turn USB HID keyboard reports into a normalized
+#      key-event stream, entirely in userland. Pure and host-testable.
+#
+#   2. KERNEL DRAIN (a later bite) — pull HID reports from the kernel via
+#      kbscan#42. That thin syscall wrapper is the only target-specific piece.
+#
+# USB HID keyboard model. A boot-protocol keyboard report is 8 bytes:
+#   +0  modifiers  — bitmap; bit i set = modifier usage (0xE0 + i) is down
+#   +1  reserved
+#   +2..+7  keys   — up to 6 currently-pressed key usage IDs (0x00 = empty slot)
+# Usage IDs are USB HID Keyboard/Keypad usage-page (0x07) values. The report is
+# STATE (which keys are down now), so key-release is not a signal in the wire
+# data — it is DERIVED by diffing the previous report against the current one:
+# a usage present before and absent now is a release, and vice versa. That is
+# what bhumi_kbd_diff does.
+#
+# PLATFORM vs COMPOSITOR SPLIT. bhumi emits (press/release, HID usage) events —
+# physical keys, not characters. Keyboard layout, modifier state, keysym
+# translation, and compose live in the compositor (aethersafha), exactly as
+# libxkbcommon does above evdev. bhumi is the platform layer; no keymap here.
+#
+# POINTER. The agnos kernel exposes no mouse/pointer/HID-pointer syscall yet
+# (surface tops at kbscan#42, keyboard-only), so pointer input is deliberately
+# absent until that ABI lands — not stubbed with a fabricated one.
+#
+# Flat domain module: no stdlib includes here (see src/main.cyr).
+
+# ================================================================
+# HID boot keyboard report layout + usage-page (0x07) landmarks
+# ================================================================
+
+enum BhumiHidReport {
+    BHUMI_HID_REPORT_MODS = 0;   # modifier bitmap byte
+    BHUMI_HID_REPORT_KEY0 = 2;   # first of the six key slots (bytes 2..7)
+    BHUMI_HID_REPORT_KEYS = 6;   # number of key slots
+    BHUMI_HID_REPORT_SIZE = 8;   # boot keyboard report size in bytes
+}
+
+# Usage IDs 0x00-0x03 are the empty slot + error/rollover indicators, never keys.
+var BHUMI_HID_KEY_MIN = 0x04;
+
+# A landmark subset of usage page 0x07 (the full table is standard; the
+# compositor maps usage -> keysym). Modifiers are 0xE0-0xE7.
+enum BhumiHidUsage {
+    BHUMI_HID_A      = 0x04;
+    BHUMI_HID_ENTER  = 0x28;
+    BHUMI_HID_ESC    = 0x29;
+    BHUMI_HID_BSPACE = 0x2A;
+    BHUMI_HID_TAB    = 0x2B;
+    BHUMI_HID_SPACE  = 0x2C;
+    BHUMI_HID_RIGHT  = 0x4F;
+    BHUMI_HID_LEFT   = 0x50;
+    BHUMI_HID_DOWN   = 0x51;
+    BHUMI_HID_UP     = 0x52;
+    BHUMI_HID_LCTRL  = 0xE0;   # modifier base: 0xE0 + bit index
+    BHUMI_HID_LSHIFT = 0xE1;
+    BHUMI_HID_LALT   = 0xE2;
+    BHUMI_HID_LGUI   = 0xE3;
+    BHUMI_HID_RCTRL  = 0xE4;
+    BHUMI_HID_RSHIFT = 0xE5;
+    BHUMI_HID_RALT   = 0xE6;
+    BHUMI_HID_RGUI   = 0xE7;
+}
+
+# ================================================================
+# Normalized key event (packed i64, always >= 0)
+#
+#   bit 8      pressed — 1 = key down, 0 = key up
+#   bits 0-7   usage   — USB HID usage ID (page 0x07)
+# ================================================================
+
+fn bhumi_key_event(pressed, usage): i64 { return ((pressed & 1) << 8) | (usage & 0xFF); }
+fn bhumi_key_pressed(ev): i64 { return (ev >> 8) & 1; }
+fn bhumi_key_usage(ev): i64   { return ev & 0xFF; }
+
+# ================================================================
+# HID report diff -> key events
+# ================================================================
+
+# Is key usage `u` present in one of report `rep`'s six key slots?
+fn _bhumi_hid_has_key(rep, u): i64 {
+    var i = 0;
+    while (i < BHUMI_HID_REPORT_KEYS) {
+        if (load8(rep + BHUMI_HID_REPORT_KEY0 + i) == u) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Diff two 8-byte HID boot keyboard reports (prev -> cur) into normalized key
+# events at `out` (packed i64 each, up to `max_ev`). Returns the event count.
+# Order: modifier changes, then key releases, then key presses. Empty/error
+# slots (usage 0x00-0x03) are ignored. Stops if `out` fills.
+fn bhumi_kbd_diff(prev, cur, out, max_ev): i64 {
+    var w = 0;
+
+    # Modifiers (byte 0 bitmap): usage 0xE0 + bit index.
+    var pm = load8(prev + BHUMI_HID_REPORT_MODS);
+    var cm = load8(cur  + BHUMI_HID_REPORT_MODS);
+    var i = 0;
+    while (i < 8) {
+        var pb = (pm >> i) & 1;
+        var cb = (cm >> i) & 1;
+        if (pb != cb) {
+            if (w >= max_ev) { return w; }
+            store64(out + (w * 8), bhumi_key_event(cb, 0xE0 + i));
+            w = w + 1;
+        }
+        i = i + 1;
+    }
+
+    # Key releases: in prev's slots, gone from cur.
+    var j = 0;
+    while (j < BHUMI_HID_REPORT_KEYS) {
+        var pu = load8(prev + BHUMI_HID_REPORT_KEY0 + j);
+        if (pu >= BHUMI_HID_KEY_MIN) {
+            if (_bhumi_hid_has_key(cur, pu) == 0) {
+                if (w >= max_ev) { return w; }
+                store64(out + (w * 8), bhumi_key_event(0, pu));
+                w = w + 1;
+            }
+        }
+        j = j + 1;
+    }
+
+    # Key presses: in cur's slots, absent from prev.
+    var k = 0;
+    while (k < BHUMI_HID_REPORT_KEYS) {
+        var cu = load8(cur + BHUMI_HID_REPORT_KEY0 + k);
+        if (cu >= BHUMI_HID_KEY_MIN) {
+            if (_bhumi_hid_has_key(prev, cu) == 0) {
+                if (w >= max_ev) { return w; }
+                store64(out + (w * 8), bhumi_key_event(1, cu));
+                w = w + 1;
+            }
+        }
+        k = k + 1;
+    }
+
+    return w;
+}

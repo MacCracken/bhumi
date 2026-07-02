@@ -31,6 +31,12 @@
   of the M1 acceptance gate.
 - `programs/scanout-demo.cyr` — **M1 acceptance artifact.** Queries geometry
   (720p fallback off-agnos), draws bars, presents. Runs on real/QEMU agnos.
+- `src/input.cyr` — **M2 in progress.** Events-in: a normalized key-event model
+  over **USB HID usage codes** (page 0x07) + `bhumi_kbd_diff`, which diffs 8-byte
+  HID boot keyboard reports into press/release events (release derived from
+  report state). Keyboards attach over USB/xHCI HID — agnos has no PS/2. The
+  `kbscan`#42 drain seam is next. **Pointer input is deferred** — no pointer
+  syscall exists (surface tops at 1.51.0), so v0.3.0 is keyboard-only.
 
 **M1 is shipped as v0.2.0** — code-complete against the real ABI and verified
 cross-target (host: 86 assertions + fuzz; agnos: emits `syscall` #38/#39). The

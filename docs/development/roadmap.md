@@ -39,12 +39,24 @@ framebuffer end-to-end — is carried by `programs/scanout-demo.cyr`; running it
 on agnos hardware/QEMU for the visual confirmation is a manual downstream step
 (not reachable from host CI, matching the sibling agnos-lib precedent).
 
-### M2 — Input: kernel event source (v0.3.0)
+### M2 — Input: kernel event source (v0.3.0) — in progress
 
-`src/input.cyr` — drain keyboard/pointer events from the kernel `hid_poll` path
-into a normalized event stream the compositor consumes. Acceptance: keystrokes
-and pointer motion surface as bhumi input events. **Dep gate**: kernel input
-syscall surface (the xHCI `hid_poll` path).
+`src/input.cyr` — drain keyboard events from the kernel and normalize them into
+the event stream the compositor consumes. Acceptance: keystrokes surface as
+bhumi key events.
+
+**ABI (reviewed 2026-07-02):** keyboards attach over **USB/xHCI HID** — agnos has
+no PS/2 and never will. bhumi models input as **USB HID usage codes** (page 0x07)
+and derives press/release by diffing successive HID keyboard reports (reports are
+state-based). The kernel drains the xHCI USB-HID ring to ring-3 via **`kbscan`#42**.
+There is **no mouse/pointer/HID-pointer syscall** in any snapshot (surface tops
+at agnos 1.51.0), so **pointer motion is deferred** until the kernel lands one —
+not stubbed with a fabricated ABI. v0.3.0 is keyboard-only.
+
+Landed: the pure HID-decode half — a normalized key-event model + `bhumi_kbd_diff`
+(report diff → events, modifiers + held keys + rollover handled). Next: the
+`kbscan`#42 drain seam (cross-target, like scanout) + a poll API, then the
+acceptance demo.
 
 ### M3 — Seat: native device-access gate (v0.4.0)
 

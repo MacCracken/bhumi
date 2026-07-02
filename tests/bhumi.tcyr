@@ -175,6 +175,70 @@ fn main() {
     assert_eq(bhumi_fb_width(qfb),  64, "geometry-sized width");
     assert_eq(bhumi_fb_height(qfb), 48, "geometry-sized height");
 
+    # ----- input.cyr — USB HID key event pack ---------------------
+    test_group("input.cyr — bhumi_key_event");
+    assert_eq(bhumi_key_pressed(bhumi_key_event(1, BHUMI_HID_A)), 1,       "press: pressed=1");
+    assert_eq(bhumi_key_usage(bhumi_key_event(1, BHUMI_HID_A)), BHUMI_HID_A, "press: usage 0x04");
+    assert_eq(bhumi_key_pressed(bhumi_key_event(0, BHUMI_HID_LSHIFT)), 0,  "release: pressed=0");
+    assert_eq(bhumi_key_usage(bhumi_key_event(0, BHUMI_HID_LSHIFT)), 0xE1, "usage 0xE1 (LShift)");
+
+    # ----- input.cyr — bhumi_kbd_diff (HID report -> events) ------
+    test_group("input.cyr — bhumi_kbd_diff key press/release");
+    var prev[8];
+    var cur[8];
+    var evs[64];
+    memset(&prev, 0, 8); memset(&cur, 0, 8);
+
+    # Press A: absent -> present in a key slot.
+    store8(&cur + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 1, "A press -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&evs)), 1,          "A press: pressed");
+    assert_eq(bhumi_key_usage(load64(&evs)),   BHUMI_HID_A, "A press: usage 0x04");
+
+    # Release A: present -> absent (derived from the state change).
+    memset(&prev, 0, 8); store8(&prev + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    memset(&cur, 0, 8);
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 1, "A release -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&evs)), 0,          "A release: not pressed");
+    assert_eq(bhumi_key_usage(load64(&evs)),   BHUMI_HID_A, "A release: usage 0x04");
+
+    # Held key stays down while another is added -> only the new key events.
+    memset(&prev, 0, 8); store8(&prev + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    memset(&cur, 0, 8);
+    store8(&cur + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    store8(&cur + BHUMI_HID_REPORT_KEY0 + 1, 0x05);       # 'B'
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 1, "add B while A held -> 1 event");
+    assert_eq(bhumi_key_usage(load64(&evs)), 0x05, "the new key is B");
+
+    # Empty/rollover slots (0x00-0x03) never produce events.
+    memset(&prev, 0, 8); memset(&cur, 0, 8);
+    store8(&cur + BHUMI_HID_REPORT_KEY0, 0x01);           # ErrorRollOver
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 0, "rollover slot -> no event");
+
+    # ----- input.cyr — bhumi_kbd_diff modifiers -------------------
+    test_group("input.cyr — bhumi_kbd_diff modifiers");
+    memset(&prev, 0, 8); memset(&cur, 0, 8);
+    store8(&cur + BHUMI_HID_REPORT_MODS, 0x02);           # bit 1 = LShift (0xE1)
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 1, "LShift down -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&evs)), 1,    "LShift: press");
+    assert_eq(bhumi_key_usage(load64(&evs)),   0xE1, "LShift: usage 0xE1");
+    # Release the modifier.
+    memset(&prev, 0, 8); store8(&prev + BHUMI_HID_REPORT_MODS, 0x02);
+    memset(&cur, 0, 8);
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 1, "LShift up -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&evs)), 0, "LShift: release");
+
+    # Combined: LCtrl + A pressed together -> modifier event first, then key.
+    memset(&prev, 0, 8); memset(&cur, 0, 8);
+    store8(&cur + BHUMI_HID_REPORT_MODS, 0x01);           # bit 0 = LCtrl (0xE0)
+    store8(&cur + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    assert_eq(bhumi_kbd_diff(&prev, &cur, &evs, 8), 2, "Ctrl+A -> 2 events");
+    assert_eq(bhumi_key_usage(load64(&evs + 0)), 0xE0,        "event 0: LCtrl (modifier first)");
+    assert_eq(bhumi_key_usage(load64(&evs + 8)), BHUMI_HID_A, "event 1: A");
+
+    # No change -> no events.
+    assert_eq(bhumi_kbd_diff(&cur, &cur, &evs, 8), 0, "identical reports -> no events");
+
     return assert_summary();
 }
 
