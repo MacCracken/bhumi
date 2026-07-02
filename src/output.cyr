@@ -1,0 +1,163 @@
+# @public — bhumi output module: the compositor's pixels-out path.
+#
+# output.cyr is the sovereign replacement for the Linux DRM/KMS half of
+# the compositor backend. It has two halves:
+#
+#   1. PIXEL PRODUCTION (this bite) — a software framebuffer: an owned
+#      RGBA/XRGB pixel buffer the compositor draws into, entirely in
+#      userland. Testable with no kernel, no device, no display. This is
+#      what a test pattern is rendered into.
+#
+#   2. SCANOUT (a later bite) — handing a finished framebuffer to the
+#      screen via agnodrm → kernel `blit#39`. That kernel ABI is NOT yet
+#      in this checkout (the agnos snapshot here tops out at agnos 1.45.16
+#      / winsize#60; #39 is an unassigned gap), so the scanout seam is
+#      deliberately absent rather than fabricated. When the ABI lands it
+#      plugs in as a single narrow function that consumes a BhumiFb — the
+#      pixel-production surface below does not change.
+#
+# Pixel format contract (XRGB8888, the DRM primary-plane default):
+#   32 bits per pixel, stored little-endian, so a packed value
+#   0x00RRGGBB lands in memory as bytes [BB, GG, RR, 00]. The packing is
+#   defined in exactly one place (bhumi_xrgb) so re-targeting the byte
+#   order for the real agnodrm mode surface is a one-function change.
+#
+# Flat domain module: no stdlib includes here (they live in src/main.cyr
+# and cyrius.cyml [deps.stdlib]) so `cyrius distlib` concatenates cleanly.
+
+# ================================================================
+# Pixel format
+#
+# NOTE for consumers/tests: naming any constant below (or the layout
+# offsets) requires SOURCE-including this module — via `include
+# "src/main.cyr"` in-tree, or the flat `dist/bhumi.cyr` bundle. Under
+# `cyrius test`, [lib].modules are auto-injected and *linked*, which
+# exposes bhumi's functions as global symbols but NOT its module-level
+# enum/var constants. Functions resolve with no include; constants do
+# not. (See docs/architecture.)
+# ================================================================
+
+enum BhumiPixelFormat {
+    BHUMI_FMT_XRGB8888 = 0;   # 32bpp, LE bytes [B,G,R,X]; DRM primary-plane default
+}
+
+# ================================================================
+# BhumiFb — a heap-owned software framebuffer (56-byte header)
+#
+#   +0   width_px   i64  visible width  in pixels
+#   +8   height_px  i64  visible height in pixels
+#   +16  pitch      i64  bytes per row (width_px * bpp)
+#   +24  format     i64  BhumiPixelFormat
+#   +32  bpp        i64  bytes per pixel (4 for XRGB8888)
+#   +40  pixels     i64  pointer to the pixel buffer (size bytes)
+#   +48  size       i64  pixel buffer size in bytes (pitch * height_px)
+# ================================================================
+
+enum BhumiFbLayout {
+    BHUMI_FB_WIDTH  = 0;
+    BHUMI_FB_HEIGHT = 8;
+    BHUMI_FB_PITCH  = 16;
+    BHUMI_FB_FORMAT = 24;
+    BHUMI_FB_BPP    = 32;
+    BHUMI_FB_PIXELS = 40;
+    BHUMI_FB_SIZE   = 48;
+    BHUMI_FB_HEADER = 56;   # header byte size (also the next free offset)
+}
+
+# Per-axis pixel cap. Guards against i64 overflow in (width*bpp*height)
+# and rejects absurd dimensions before they reach alloc(). 16384 covers
+# 8K and then some; the real bound is alloc()'s 256 MB chunk cap, which
+# rejects anything larger by returning 0 (propagated as OOM below).
+var BHUMI_FB_MAX_DIM = 16384;
+
+# ================================================================
+# Pixel packing
+# ================================================================
+
+# Pack (r,g,b) 8-bit channels into an XRGB8888 pixel (X/alpha byte = 0).
+# Channels are masked to 8 bits so out-of-range callers can't bleed into
+# an adjacent channel.
+fn bhumi_xrgb(r, g, b): i64 {
+    return (((r & 0xFF) << 16) | ((g & 0xFF) << 8)) | (b & 0xFF);
+}
+
+# ================================================================
+# Construction + accessors
+# ================================================================
+
+# Allocate a zero-initialized software framebuffer of width x height
+# pixels in XRGB8888. Returns the BhumiFb header pointer, or 0 on invalid
+# dimensions or allocation failure (OOM). The pixel buffer is NOT cleared
+# here beyond alloc()'s fresh-chunk zeroing — call bhumi_fb_clear() for a
+# defined starting color.
+fn bhumi_fb_new(width, height): i64 {
+    if (width <= 0)                { return 0; }
+    if (height <= 0)               { return 0; }
+    if (width > BHUMI_FB_MAX_DIM)  { return 0; }
+    if (height > BHUMI_FB_MAX_DIM) { return 0; }
+
+    var bpp   = 4;
+    var pitch = width * bpp;
+    var size  = pitch * height;
+
+    var fb = alloc(BHUMI_FB_HEADER);
+    if (fb == 0) { return 0; }
+
+    var pixels = alloc(size);
+    if (pixels == 0) { return 0; }   # header is arena-scoped; no per-object free
+
+    store64(fb + BHUMI_FB_WIDTH,  width);
+    store64(fb + BHUMI_FB_HEIGHT, height);
+    store64(fb + BHUMI_FB_PITCH,  pitch);
+    store64(fb + BHUMI_FB_FORMAT, BHUMI_FMT_XRGB8888);
+    store64(fb + BHUMI_FB_BPP,    bpp);
+    store64(fb + BHUMI_FB_PIXELS, pixels);
+    store64(fb + BHUMI_FB_SIZE,   size);
+    return fb;
+}
+
+fn bhumi_fb_width(fb): i64  { return load64(fb + BHUMI_FB_WIDTH); }
+fn bhumi_fb_height(fb): i64 { return load64(fb + BHUMI_FB_HEIGHT); }
+fn bhumi_fb_pitch(fb): i64  { return load64(fb + BHUMI_FB_PITCH); }
+fn bhumi_fb_format(fb): i64 { return load64(fb + BHUMI_FB_FORMAT); }
+fn bhumi_fb_bpp(fb): i64    { return load64(fb + BHUMI_FB_BPP); }
+fn bhumi_fb_pixels(fb): i64 { return load64(fb + BHUMI_FB_PIXELS); }
+fn bhumi_fb_size(fb): i64   { return load64(fb + BHUMI_FB_SIZE); }
+
+# ================================================================
+# Pixel access (bounds-checked)
+# ================================================================
+
+# Byte address of pixel (x,y). Internal — caller must have bounds-checked.
+fn _bhumi_fb_addr(fb, x, y): i64 {
+    return (load64(fb + BHUMI_FB_PIXELS) + (y * load64(fb + BHUMI_FB_PITCH))) + (x * load64(fb + BHUMI_FB_BPP));
+}
+
+# Write one pixel. Returns 0 on success, -1 if (x,y) is out of bounds
+# (the write is rejected, never clamped, so a caller bug fails loud).
+fn bhumi_fb_set(fb, x, y, pixel): i64 {
+    if ((x < 0) || (x >= load64(fb + BHUMI_FB_WIDTH)))  { return -1; }
+    if ((y < 0) || (y >= load64(fb + BHUMI_FB_HEIGHT))) { return -1; }
+    store32(_bhumi_fb_addr(fb, x, y), pixel);
+    return 0;
+}
+
+# Read one pixel. Returns the XRGB8888 value (0..0xFFFFFFFF, always
+# non-negative), or -1 if (x,y) is out of bounds.
+fn bhumi_fb_get(fb, x, y): i64 {
+    if ((x < 0) || (x >= load64(fb + BHUMI_FB_WIDTH)))  { return -1; }
+    if ((y < 0) || (y >= load64(fb + BHUMI_FB_HEIGHT))) { return -1; }
+    return load32(_bhumi_fb_addr(fb, x, y));
+}
+
+# Fill the entire framebuffer with `pixel`. Returns 0. size is always a
+# multiple of 4 (pitch = width*4), so the walk lands exactly on `end`.
+fn bhumi_fb_clear(fb, pixel): i64 {
+    var addr = load64(fb + BHUMI_FB_PIXELS);
+    var end  = addr + load64(fb + BHUMI_FB_SIZE);
+    while (addr < end) {
+        store32(addr, pixel);
+        addr = addr + 4;
+    }
+    return 0;
+}

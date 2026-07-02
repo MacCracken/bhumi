@@ -1,11 +1,64 @@
 # bhumi test suite
-# Stdlib auto-included via cyrius.cyml
+# Stdlib auto-included via cyrius.cyml. src/main.cyr is source-included
+# so the test can name output.cyr's constants (BHUMI_FMT_*, ...): under
+# `cyrius test` the [lib].modules are linked (functions become global
+# symbols) but their enum/var constants are only visible to a file that
+# source-includes the module.
+include "src/main.cyr"
 
 fn main() {
     alloc_init();
     test_group("smoke");
     assert(1, "true is true");
     assert_eq(1 + 1, 2, "math works");
+
+    # ----- output.cyr — pixel packing -----------------------------
+    test_group("output.cyr — bhumi_xrgb pack");
+    assert_eq(bhumi_xrgb(0x12, 0x34, 0x56), 0x123456, "rgb packs to XRGB8888");
+    assert_eq(bhumi_xrgb(0, 0, 0), 0, "black is 0");
+    assert_eq(bhumi_xrgb(0xFF, 0xFF, 0xFF), 0xFFFFFF, "white is 0xFFFFFF");
+    assert_eq(bhumi_xrgb(0x1FF, 0x1FF, 0x1FF), 0xFFFFFF, "channels mask to 8 bits");
+
+    # ----- output.cyr — framebuffer construction ------------------
+    test_group("output.cyr — bhumi_fb_new geometry");
+    var fb = bhumi_fb_new(4, 3);
+    assert_neq(fb, 0, "4x3 fb allocates");
+    assert_eq(bhumi_fb_width(fb),  4,  "width");
+    assert_eq(bhumi_fb_height(fb), 3,  "height");
+    assert_eq(bhumi_fb_bpp(fb),    4,  "bpp = 4 (XRGB8888)");
+    assert_eq(bhumi_fb_pitch(fb),  16, "pitch = width * bpp");
+    assert_eq(bhumi_fb_size(fb),   48, "size = pitch * height");
+    assert_eq(bhumi_fb_format(fb), BHUMI_FMT_XRGB8888, "format XRGB8888");
+
+    test_group("output.cyr — bhumi_fb_new rejects bad dims");
+    assert_eq(bhumi_fb_new(0, 3),  0, "zero width rejected");
+    assert_eq(bhumi_fb_new(4, 0),  0, "zero height rejected");
+    assert_eq(bhumi_fb_new(-1, 3), 0, "negative width rejected");
+    assert_eq(bhumi_fb_new(4, -1), 0, "negative height rejected");
+    assert_eq(bhumi_fb_new(BHUMI_FB_MAX_DIM + 1, 1), 0, "over-max width rejected");
+
+    # ----- output.cyr — set / get round-trip + bounds -------------
+    test_group("output.cyr — bhumi_fb_set / get");
+    var red = bhumi_xrgb(0xFF, 0x00, 0x00);
+    assert_eq(bhumi_fb_set(fb, 0, 0, red), 0, "set (0,0) ok");
+    assert_eq(bhumi_fb_get(fb, 0, 0), red, "get (0,0) round-trips");
+    assert_eq(bhumi_fb_set(fb, 3, 2, red), 0, "set corner (3,2) ok");
+    assert_eq(bhumi_fb_get(fb, 3, 2), red, "get corner (3,2) round-trips");
+    # Neighbor untouched — writes don't bleed across the pitch.
+    assert_eq(bhumi_fb_get(fb, 1, 0), 0, "adjacent pixel untouched");
+    # Out-of-bounds is rejected (-1), never clamped or wrapped.
+    assert_eq(bhumi_fb_set(fb, 4, 0, red), -1, "set x==width rejected");
+    assert_eq(bhumi_fb_set(fb, 0, 3, red), -1, "set y==height rejected");
+    assert_eq(bhumi_fb_get(fb, -1, 0), -1, "get negative x rejected");
+
+    # ----- output.cyr — clear -------------------------------------
+    test_group("output.cyr — bhumi_fb_clear");
+    var blue = bhumi_xrgb(0x00, 0x00, 0xFF);
+    bhumi_fb_clear(fb, blue);
+    assert_eq(bhumi_fb_get(fb, 0, 0), blue, "clear fills (0,0)");
+    assert_eq(bhumi_fb_get(fb, 3, 2), blue, "clear fills last pixel");
+    assert_eq(bhumi_fb_get(fb, 2, 1), blue, "clear fills interior");
+
     return assert_summary();
 }
 

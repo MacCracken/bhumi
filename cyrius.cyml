@@ -11,7 +11,11 @@ entry = "programs/smoke.cyr"
 output = "build/bhumi-smoke"
 
 [lib]
-modules = ["src/main.cyr"]
+# Domain modules, concatenated (in order) by `cyrius distlib` into
+# dist/bhumi.cyr. src/main.cyr is the in-tree convenience entry that
+# includes these for smoke.cyr + tests — intentionally NOT listed here,
+# else its module bodies would duplicate in the dist bundle.
+modules = ["src/output.cyr"]
 
 [deps]
 stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert", "bench"]

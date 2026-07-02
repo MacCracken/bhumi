@@ -30,7 +30,7 @@
 # programs/smoke.cyr proves the include chain compiles end-to-end.
 
 # --- module include chain (uncomment as each module lands) ---
-# include "src/output.cyr"     # DRM/KMS scanout via agnodrm
+include "src/output.cyr"       # pixels-out: software framebuffer (+ scanout seam, later)
 # include "src/input.cyr"      # kernel input events
 # include "src/seat.cyr"       # native seat / device-access gate
 # include "src/backend.cyr"    # assembled platform-backend handle
