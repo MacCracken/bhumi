@@ -60,6 +60,9 @@ fn main(): i64 {
     var xfh = bhumi_fb_height(xfb);
 
     var info[24];
+    var hprev[8];
+    var hcur[8];
+    var hout[256];   # up to 32 events
 
     # Guards are input-independent — check once.
     if (bhumi_output_present(0) != 0 - 1) { return _fz_fail("FAIL: present(null) != -1\n"); }
@@ -147,10 +150,33 @@ fn main(): i64 {
         if (fmt == 1) { want_ok = 1; }
         if (bhumi_output_format_ok(&info) != want_ok) { return _fz_fail("FAIL: format_ok\n"); }
 
+        # --- HID report diff: random reports -> well-formed events ---
+        var hb = 0;
+        while (hb < 8) {
+            store8(&hprev + hb, _fz_mod(256));
+            store8(&hcur  + hb, _fz_mod(256));
+            hb = hb + 1;
+        }
+        var hn = bhumi_kbd_diff(&hprev, &hcur, &hout, 20);
+        if (hn < 0)  { return _fz_fail("FAIL: diff count < 0\n"); }
+        if (hn > 20) { return _fz_fail("FAIL: diff count > max_ev\n"); }
+        var he = 0;
+        while (he < hn) {
+            var hev = load64(&hout + (he * 8));
+            var hu = bhumi_key_usage(hev);
+            var hp = bhumi_key_pressed(hev);
+            if (hu < BHUMI_HID_KEY_MIN) { return _fz_fail("FAIL: event usage < 0x04\n"); }
+            if (hu > 0xFF)              { return _fz_fail("FAIL: event usage > 0xFF\n"); }
+            if ((hp != 0) && (hp != 1)) { return _fz_fail("FAIL: event pressed not 0/1\n"); }
+            he = he + 1;
+        }
+        # A report diffed against itself settles to no events.
+        if (bhumi_kbd_diff(&hcur, &hcur, &hout, 20) != 0) { return _fz_fail("FAIL: self-diff non-zero\n"); }
+
         i = i + 1;
     }
 
-    println("fuzz: bhumi output surface — all invariants held");
+    println("fuzz: bhumi output + input surface — all invariants held");
     return 0;
 }
 

@@ -1,0 +1,58 @@
+# input-demo — the M2 acceptance artifact: keystrokes surfacing as bhumi events.
+# On agnos it polls the USB HID keyboard via kbscan#42, diffs HID reports into
+# normalized key events, and prints each one (Esc quits). Off agnos there is no
+# keyboard, so it explains itself and exits — doubling as a host smoke of the
+# input pipeline.
+#
+# Build (agnos): cyrius build --agnos programs/input-demo.cyr build/input-demo
+# Run on a real or QEMU agnos target and type; each key prints down/up + usage.
+
+include "src/main.cyr"
+
+# Write a cstring with no trailing newline (label before a number).
+fn _emit(s): i64 { return print(s, strlen(s)); }
+
+#ifdef CYRIUS_TARGET_AGNOS
+fn main() {
+    alloc_init();
+    println("input-demo: press keys - Esc quits");
+    var prev[8];
+    bhumi_input_init(&prev);
+    var evs[64];
+    var running = 1;
+    while (running == 1) {
+        var n = bhumi_input_poll(&prev, &evs, 8);
+        var i = 0;
+        while (i < n) {
+            var ev = load64(&evs + (i * 8));
+            var usage = bhumi_key_usage(ev);
+            if (bhumi_key_pressed(ev) == 1) { _emit("  down  usage "); }
+            if (bhumi_key_pressed(ev) == 0) { _emit("  up    usage "); }
+            print_num(usage);
+            println("");
+            if (usage == BHUMI_HID_ESC) { running = 0; }
+            i = i + 1;
+        }
+        sys_sleep_ms(16);   # ~60 Hz poll cadence; anything queued drains next frame
+    }
+    println("input-demo: bye");
+    return 0;
+}
+#endif
+
+#ifndef CYRIUS_TARGET_AGNOS
+fn main() {
+    alloc_init();
+    println("input-demo: no keyboard on a non-agnos host - kbscan#42 is agnos-only.");
+    println("input-demo: build --agnos and run on agnos to watch key events.");
+    var prev[8];
+    bhumi_input_init(&prev);
+    var evs[64];
+    print_num(bhumi_input_poll(&prev, &evs, 8));
+    println(" events from a host poll (expected 0)");
+    return 0;
+}
+#endif
+
+var r = main();
+syscall(SYS_EXIT, r);

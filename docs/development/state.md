@@ -5,8 +5,8 @@
 
 ## Version
 
-**0.2.0** — M1 (output) shipped 2026-07-02. Scaffolded 2026-06-29 via
-`cyrius init` (0.1.0).
+**0.3.0** — M2 (input, keyboard) shipped 2026-07-02. M1 (output) 0.2.0;
+scaffolded 2026-06-29 via `cyrius init` (0.1.0).
 
 ## Toolchain
 
@@ -31,28 +31,32 @@
   of the M1 acceptance gate.
 - `programs/scanout-demo.cyr` — **M1 acceptance artifact.** Queries geometry
   (720p fallback off-agnos), draws bars, presents. Runs on real/QEMU agnos.
-- `src/input.cyr` — **M2 in progress.** Events-in: a normalized key-event model
-  over **USB HID usage codes** (page 0x07) + `bhumi_kbd_diff`, which diffs 8-byte
-  HID boot keyboard reports into press/release events (release derived from
-  report state). Keyboards attach over USB/xHCI HID — agnos has no PS/2.
-- `src/kbscan.cyr` — **M2 in progress.** Kernel drain: `bhumi_input_poll` pulls
-  HID reports via agnos `kbscan`#42 and diffs them into events (`sys_kbscan`
-  behind `#ifdef CYRIUS_TARGET_AGNOS`; host stub → 0). Cross-target verified: the
-  `--agnos` binary emits `syscall` `eax=42`. **Pointer input is deferred** — no
-  pointer syscall exists (surface tops at 1.51.0), so v0.3.0 is keyboard-only.
+- `src/input.cyr` — **M2.** Events-in: a normalized key-event model over **USB
+  HID usage codes** (page 0x07) + `bhumi_kbd_diff`, which diffs 8-byte HID boot
+  keyboard reports into press/release events (release derived from report state).
+  Keyboards attach over USB/xHCI HID — agnos has no PS/2.
+- `src/kbscan.cyr` — **M2.** Kernel drain: `bhumi_input_poll` pulls HID reports
+  via agnos `kbscan`#42 and diffs them into events (`sys_kbscan` behind
+  `#ifdef CYRIUS_TARGET_AGNOS`; host stub → 0). Cross-target verified: the
+  `--agnos` binary emits `syscall` `eax=42`.
+- `programs/input-demo.cyr` — **M2 acceptance artifact.** Polls the keyboard and
+  prints each key (down/up + HID usage; Esc quits) on agnos; explanatory pass
+  off-agnos.
 
-**M1 is shipped as v0.2.0** — code-complete against the real ABI and verified
-cross-target (host: 86 assertions + fuzz; agnos: emits `syscall` #38/#39). The
-end-to-end *visual* acceptance (bars on a real/QEMU agnos framebuffer, via
-`scanout-demo`) is a manual downstream step, not reachable from host CI.
+**M1 (v0.2.0) and M2 (v0.3.0) shipped** — code-complete against the real ABIs and
+verified cross-target (host: 117 assertions + fuzz; agnos: emits `syscall`
+#38/#39 output, #42 input). Visual/interactive acceptance (`scanout-demo`,
+`input-demo` on a real/QEMU agnos target) is a manual downstream step, not
+reachable from host CI. **Pointer input is deferred** — no pointer syscall exists
+(surface tops at 1.51.0), so v0.3.0 input is keyboard-only.
 
 ## Tests
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` / `pattern.cyr` /
-  `scanout.cyr` + edge cases (86 assertions, passes on `cyrius test`).
-  Source-includes `src/main.cyr` (see
+  `scanout.cyr` / `input.cyr` / `kbscan.cyr` + edge cases (117 assertions, passes
+  on `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
-- `fuzz/bhumi.fcyr` — property fuzz over the public output surface
+- `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface
   (`cyrius fuzz`); holds to 200k+ iterations.
 - `tests/bhumi.bcyr` — benchmarks: 720p color-bars / XOR full-frame paint
   throughput (`cyrius bench tests/bhumi.bcyr`).

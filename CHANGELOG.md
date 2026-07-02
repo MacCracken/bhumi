@@ -4,23 +4,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-02
+
+**M2 — Input (keyboard).** The compositor's events-in path: drain the USB/xHCI
+HID keyboard via the agnos `kbscan`#42 syscall and normalize it into a key-event
+stream. Keyboard-only — agnos exposes no pointer syscall yet, so pointer input is
+deferred (agnos has no PS/2 and never will). Verified cross-target; on-hardware/
+QEMU acceptance via `input-demo` is the downstream step (see roadmap M2).
+
 ### Added
-- `src/input.cyr` — the HID-decode half of the M2 input module. A normalized
+- `src/input.cyr` — the HID-decode half of the input module. A normalized
   key-event model (`bhumi_key_event` + `bhumi_key_{pressed,usage}`) over **USB
   HID usage codes** (Keyboard/Keypad page 0x07), and `bhumi_kbd_diff`, which
   diffs two 8-byte HID boot keyboard reports into press/release events — release
   is *derived* from report state (HID reports are state-based), not a wire
   signal. Handles modifiers (0xE0-0xE7), held keys, and empty/rollover slots.
   bhumi emits physical key events; layout/keysyms stay in the compositor.
-  Keyboards attach over USB/xHCI HID (agnos has no PS/2). Pointer input is
-  deferred (no pointer syscall yet).
-- `src/kbscan.cyr` — the kernel-drain half of the M2 input module. Pulls HID
-  reports via the agnos `kbscan`#42 syscall and runs them through the decoder:
-  `bhumi_input_poll(prev, out, max)` drains + diffs, `bhumi_input_process` is the
-  pure host-tested report-stream core, `bhumi_input_init` seeds the held report.
-  The `sys_kbscan` wrapper is behind `#ifdef CYRIUS_TARGET_AGNOS`; the host stub
-  returns 0. Verified cross-target: the `--agnos` build emits `syscall` `eax=42`.
-  +31 input/drain tests (117 total).
+- `src/kbscan.cyr` — the kernel-drain half. Pulls HID reports via `kbscan`#42
+  and runs them through the decoder: `bhumi_input_poll(prev, out, max)` drains +
+  diffs, `bhumi_input_process` is the pure host-tested report-stream core,
+  `bhumi_input_init` seeds the held report. The `sys_kbscan` wrapper is behind
+  `#ifdef CYRIUS_TARGET_AGNOS`; the host stub returns 0. Verified cross-target:
+  the `--agnos` build emits `syscall` `eax=42`.
+- `programs/input-demo.cyr` — the M2 acceptance artifact: on agnos it polls the
+  keyboard and prints each key (down/up + HID usage, Esc quits); off agnos it
+  explains itself and exits. Builds `--agnos`; emits `kbscan`#42 + `sleep_ms`#41.
+- `tests/bhumi.tcyr` — +31 assertions over `input.cyr` / `kbscan.cyr` (event
+  packing, report diff for press/release/modifiers/held-keys/rollover, drain
+  processing of multi-report buffers, host-stub poll); 117 total.
+- `fuzz/bhumi.fcyr` — extended with the HID report decoder: random 8-byte reports
+  through `bhumi_kbd_diff` hold the event-count bound, usage/pressed validity, and
+  self-diff-is-empty invariants (200k+ iterations).
 
 ## [0.2.0] — 2026-07-02
 

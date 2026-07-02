@@ -59,6 +59,7 @@ jobs:
         run: |
           cyrius build --agnos programs/smoke.cyr build/${{ github.event.repository.name }}-smoke-agnos
           cyrius build --agnos programs/scanout-demo.cyr build/scanout-demo-agnos
+          cyrius build --agnos programs/input-demo.cyr build/input-demo-agnos
 
       - name: Fuzz
         # Property fuzz over the public output surface (fuzz/bhumi.fcyr):

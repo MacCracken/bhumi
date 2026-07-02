@@ -39,7 +39,7 @@ framebuffer end-to-end — is carried by `programs/scanout-demo.cyr`; running it
 on agnos hardware/QEMU for the visual confirmation is a manual downstream step
 (not reachable from host CI, matching the sibling agnos-lib precedent).
 
-### M2 — Input: kernel event source (v0.3.0) — in progress
+### M2 — Input: kernel event source (v0.3.0) — ✅ shipped 2026-07-02
 
 `src/input.cyr` — drain keyboard events from the kernel and normalize them into
 the event stream the compositor consumes. Acceptance: keystrokes surface as
@@ -53,11 +53,11 @@ There is **no mouse/pointer/HID-pointer syscall** in any snapshot (surface tops
 at agnos 1.51.0), so **pointer motion is deferred** until the kernel lands one —
 not stubbed with a fabricated ABI. v0.3.0 is keyboard-only.
 
-Landed: the HID-decode half (a normalized key-event model + `bhumi_kbd_diff`) and
-the `kbscan`#42 drain seam (`bhumi_input_poll` / `_process` / `_init`,
-cross-target — the `--agnos` binary emits `syscall` #42). Next to close v0.3.0:
-a keyboard demo (poll → print events), a fuzz harness over the report decoder,
-and the version cut.
+Shipped: the HID-decode half (normalized key-event model + `bhumi_kbd_diff`), the
+`kbscan`#42 drain seam (`bhumi_input_poll` / `_process` / `_init`, cross-target —
+the `--agnos` binary emits `syscall` #42), the `input-demo` acceptance artifact,
+and fuzz coverage of the report decoder. Deferred: **pointer input**, once the
+agnos kernel lands a pointer/HID-pointer syscall.
 
 ### M3 — Seat: native device-access gate (v0.4.0)
 
