@@ -12,9 +12,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is *derived* from report state (HID reports are state-based), not a wire
   signal. Handles modifiers (0xE0-0xE7), held keys, and empty/rollover slots.
   bhumi emits physical key events; layout/keysyms stay in the compositor.
-  Keyboards attach over USB/xHCI HID (agnos has no PS/2). The `kbscan`#42 kernel
-  drain seam is next; pointer input is deferred (no pointer syscall yet). +22
-  tests (108).
+  Keyboards attach over USB/xHCI HID (agnos has no PS/2). Pointer input is
+  deferred (no pointer syscall yet).
+- `src/kbscan.cyr` — the kernel-drain half of the M2 input module. Pulls HID
+  reports via the agnos `kbscan`#42 syscall and runs them through the decoder:
+  `bhumi_input_poll(prev, out, max)` drains + diffs, `bhumi_input_process` is the
+  pure host-tested report-stream core, `bhumi_input_init` seeds the held report.
+  The `sys_kbscan` wrapper is behind `#ifdef CYRIUS_TARGET_AGNOS`; the host stub
+  returns 0. Verified cross-target: the `--agnos` build emits `syscall` `eax=42`.
+  +31 input/drain tests (117 total).
 
 ## [0.2.0] — 2026-07-02
 

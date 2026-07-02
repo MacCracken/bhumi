@@ -34,9 +34,12 @@
 - `src/input.cyr` — **M2 in progress.** Events-in: a normalized key-event model
   over **USB HID usage codes** (page 0x07) + `bhumi_kbd_diff`, which diffs 8-byte
   HID boot keyboard reports into press/release events (release derived from
-  report state). Keyboards attach over USB/xHCI HID — agnos has no PS/2. The
-  `kbscan`#42 drain seam is next. **Pointer input is deferred** — no pointer
-  syscall exists (surface tops at 1.51.0), so v0.3.0 is keyboard-only.
+  report state). Keyboards attach over USB/xHCI HID — agnos has no PS/2.
+- `src/kbscan.cyr` — **M2 in progress.** Kernel drain: `bhumi_input_poll` pulls
+  HID reports via agnos `kbscan`#42 and diffs them into events (`sys_kbscan`
+  behind `#ifdef CYRIUS_TARGET_AGNOS`; host stub → 0). Cross-target verified: the
+  `--agnos` binary emits `syscall` `eax=42`. **Pointer input is deferred** — no
+  pointer syscall exists (surface tops at 1.51.0), so v0.3.0 is keyboard-only.
 
 **M1 is shipped as v0.2.0** — code-complete against the real ABI and verified
 cross-target (host: 86 assertions + fuzz; agnos: emits `syscall` #38/#39). The

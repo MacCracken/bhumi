@@ -1,0 +1,79 @@
+# @public — bhumi input drain: the kernel handoff (agnos kbscan#42).
+#
+# The events-in counterpart to scanout.cyr. Pulls USB HID keyboard reports from
+# the kernel and feeds them through the report-diff decoder in input.cyr. The
+# single sys_kbscan wrapper is the only target-specific code; everything else is
+# pure and host-tested.
+#
+# kbscan#42 (agnos, keyboard-only): sys_kbscan(buf, max) copies up to `max` bytes
+# of pending USB HID keyboard report data — 8-byte boot keyboard reports — from
+# the kernel's ring into `buf`, non-blocking; returns the byte count (0 = none).
+# bhumi drains whole reports and diffs each against the previous one to derive
+# press/release (HID reports are state, not events). `max` is a multiple of the
+# 8-byte report size so whole reports land per poll; anything still queued drains
+# on the next poll.
+#
+# Flat domain module: no stdlib includes (see src/main.cyr). Depends on
+# input.cyr (bhumi_kbd_diff + the BHUMI_HID_* layout), which precedes it in the
+# include chain and the [lib].modules bundle order.
+
+# Bytes drained per poll — a multiple of BHUMI_HID_REPORT_SIZE (8) so whole
+# reports always land. The stack buffer in bhumi_input_poll mirrors this size.
+var BHUMI_INPUT_DRAIN_MAX = 64;   # up to 8 buffered reports per poll
+
+# ================================================================
+# Kernel seam — the ONLY target-specific code. Exactly one branch compiles.
+# ================================================================
+
+#ifdef CYRIUS_TARGET_AGNOS
+fn _bhumi_kbscan(buf, max): i64 { return sys_kbscan(buf, max); }
+#endif
+
+#ifndef CYRIUS_TARGET_AGNOS
+# Host / non-agnos: no keyboard, nothing to drain.
+fn _bhumi_kbscan(buf, max): i64 { return 0; }
+#endif
+
+# ================================================================
+# Drain + decode
+# ================================================================
+
+# Initialize a caller-held previous-report buffer (BHUMI_HID_REPORT_SIZE bytes)
+# to "all keys up". Call once before the first poll.
+fn bhumi_input_init(prev): i64 {
+    var i = 0;
+    while (i < BHUMI_HID_REPORT_SIZE) { store8(prev + i, 0); i = i + 1; }
+    return 0;
+}
+
+# Process `n` drained bytes at `raw` as a sequence of whole 8-byte HID reports,
+# diffing each against `prev` (updated in place to the last report seen) into key
+# events at `out` (up to `max_ev`). Returns the event count. Pure — the
+# host-testable core of bhumi_input_poll. A trailing partial report (n not a
+# multiple of 8) is left unprocessed.
+fn bhumi_input_process(prev, raw, n, out, max_ev): i64 {
+    var w = 0;
+    var off = 0;
+    while ((off + BHUMI_HID_REPORT_SIZE) <= n) {
+        if (w >= max_ev) { return w; }
+        w = w + bhumi_kbd_diff(prev, raw + off, out + (w * 8), max_ev - w);
+        var j = 0;
+        while (j < BHUMI_HID_REPORT_SIZE) {
+            store8(prev + j, load8(raw + off + j));
+            j = j + 1;
+        }
+        off = off + BHUMI_HID_REPORT_SIZE;
+    }
+    return w;
+}
+
+# Drain pending USB HID keyboard reports and emit normalized key events. `prev`
+# is the caller's held report (init with bhumi_input_init); `out` receives up to
+# `max_ev` packed events. Returns the event count. On a non-agnos host (no
+# keyboard), or when nothing is pending, returns 0.
+fn bhumi_input_poll(prev, out, max_ev): i64 {
+    var raw[64];   # == BHUMI_INPUT_DRAIN_MAX
+    var n = _bhumi_kbscan(&raw, BHUMI_INPUT_DRAIN_MAX);
+    if (n <= 0) { return 0; }
+    return bhumi_input_process(prev, &raw, n, out, max_ev);
+}

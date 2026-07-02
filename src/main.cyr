@@ -33,7 +33,8 @@
 include "src/output.cyr"       # pixels-out: software framebuffer (BhumiFb)
 include "src/scanout.cyr"      # kernel handoff: agnos fbinfo#38 / blit#39 (cross-target)
 include "src/pattern.cyr"      # bring-up test patterns (color bars, XOR) over a BhumiFb
-include "src/input.cyr"        # events-in: USB HID keyboard report decode (+ kbscan drain, later)
+include "src/input.cyr"        # events-in: USB HID keyboard report decode
+include "src/kbscan.cyr"       # kernel drain: agnos kbscan#42 -> HID reports (cross-target)
 # include "src/seat.cyr"       # native seat / device-access gate
 # include "src/backend.cyr"    # assembled platform-backend handle
 

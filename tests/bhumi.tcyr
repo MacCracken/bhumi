@@ -239,6 +239,41 @@ fn main() {
     # No change -> no events.
     assert_eq(bhumi_kbd_diff(&cur, &cur, &evs, 8), 0, "identical reports -> no events");
 
+    # ----- kbscan.cyr — init + poll (host stub) -------------------
+    test_group("kbscan.cyr — bhumi_input_init / poll");
+    var pv[8];
+    store8(&pv + 0, 0x7F);                                 # dirty it first
+    bhumi_input_init(&pv);
+    assert_eq(load8(&pv + 0), 0, "init zeroes the prev report");
+    var pev[8];
+    assert_eq(bhumi_input_poll(&pv, &pev, 1), 0, "poll returns 0 on non-agnos host");
+
+    # ----- kbscan.cyr — bhumi_input_process (report stream) -------
+    test_group("kbscan.cyr — bhumi_input_process");
+    var pv2[8];
+    var rbuf[16];
+    var pevs[64];
+    bhumi_input_init(&pv2);
+    # Two reports in one drained buffer: [A down] then [A held + B down].
+    memset(&rbuf, 0, 16);
+    store8(&rbuf + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    store8(&rbuf + 8 + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    store8(&rbuf + 8 + BHUMI_HID_REPORT_KEY0 + 1, 0x05);   # 'B'
+    assert_eq(bhumi_input_process(&pv2, &rbuf, 16, &pevs, 8), 2, "two reports -> 2 events");
+    assert_eq(bhumi_key_pressed(load64(&pevs + 0)), 1,           "ev0 press");
+    assert_eq(bhumi_key_usage(load64(&pevs + 0)),   BHUMI_HID_A, "ev0 A");
+    assert_eq(bhumi_key_usage(load64(&pevs + 8)),   0x05,        "ev1 B");
+    # prev now reflects [A+B]; an empty report releases both.
+    var rempty[8];
+    memset(&rempty, 0, 8);
+    assert_eq(bhumi_input_process(&pv2, &rempty, 8, &pevs, 8), 2, "empty report -> 2 releases");
+    assert_eq(bhumi_key_pressed(load64(&pevs + 0)), 0, "release: not pressed");
+    # A trailing partial report (n not a multiple of 8) is left unprocessed.
+    bhumi_input_init(&pv2);
+    memset(&rbuf, 0, 16);
+    store8(&rbuf + BHUMI_HID_REPORT_KEY0, BHUMI_HID_A);
+    assert_eq(bhumi_input_process(&pv2, &rbuf, 11, &pevs, 8), 1, "11 bytes -> 1 whole report, 3 ignored");
+
     return assert_summary();
 }
 

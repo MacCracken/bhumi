@@ -53,10 +53,11 @@ There is **no mouse/pointer/HID-pointer syscall** in any snapshot (surface tops
 at agnos 1.51.0), so **pointer motion is deferred** until the kernel lands one —
 not stubbed with a fabricated ABI. v0.3.0 is keyboard-only.
 
-Landed: the pure HID-decode half — a normalized key-event model + `bhumi_kbd_diff`
-(report diff → events, modifiers + held keys + rollover handled). Next: the
-`kbscan`#42 drain seam (cross-target, like scanout) + a poll API, then the
-acceptance demo.
+Landed: the HID-decode half (a normalized key-event model + `bhumi_kbd_diff`) and
+the `kbscan`#42 drain seam (`bhumi_input_poll` / `_process` / `_init`,
+cross-target — the `--agnos` binary emits `syscall` #42). Next to close v0.3.0:
+a keyboard demo (poll → print events), a fuzz harness over the report decoder,
+and the version cut.
 
 ### M3 — Seat: native device-access gate (v0.4.0)
 
