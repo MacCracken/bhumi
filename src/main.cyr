@@ -31,6 +31,7 @@
 
 # --- module include chain (uncomment as each module lands) ---
 include "src/output.cyr"       # pixels-out: software framebuffer (+ scanout seam, later)
+include "src/pattern.cyr"      # bring-up test patterns (color bars, XOR) over a BhumiFb
 # include "src/input.cyr"      # kernel input events
 # include "src/seat.cyr"       # native seat / device-access gate
 # include "src/backend.cyr"    # assembled platform-backend handle

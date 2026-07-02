@@ -1,0 +1,91 @@
+# @public — bhumi output test patterns: deterministic pixels for bring-up.
+#
+# Diagnostic fills that render into a BhumiFb (src/output.cyr). These are
+# the "known test pattern" of M1's acceptance gate — the content that,
+# once the agnodrm → blit#39 scanout seam lands, gets pushed to a real
+# (or QEMU) framebuffer to prove the pixels-out path end-to-end. Until
+# then they are exercised entirely in userland against a software
+# framebuffer, with tests asserting exact pixels at known coordinates.
+#
+# A solid fill is already bhumi_fb_clear(fb, pixel) — not duplicated here.
+#
+# Flat domain module: no stdlib includes (see src/main.cyr). Depends on
+# the BhumiFb surface in src/output.cyr, which precedes it in the include
+# chain and the [lib].modules bundle order.
+
+# ================================================================
+# SMPTE-style 100% color bars (7 vertical bars, decreasing luminance)
+# ================================================================
+
+enum BhumiPatternBars {
+    BHUMI_BARS_N = 7;   # white, yellow, cyan, green, magenta, red, blue
+}
+
+# Packed XRGB8888 for bar index i (0..BHUMI_BARS_N-1). Out-of-range → black.
+# Public so tests (and callers) can name the expected color of a bar.
+fn bhumi_bar_color(i): i64 {
+    if (i == 0) { return bhumi_xrgb(0xFF, 0xFF, 0xFF); }   # white
+    if (i == 1) { return bhumi_xrgb(0xFF, 0xFF, 0x00); }   # yellow
+    if (i == 2) { return bhumi_xrgb(0x00, 0xFF, 0xFF); }   # cyan
+    if (i == 3) { return bhumi_xrgb(0x00, 0xFF, 0x00); }   # green
+    if (i == 4) { return bhumi_xrgb(0xFF, 0x00, 0xFF); }   # magenta
+    if (i == 5) { return bhumi_xrgb(0xFF, 0x00, 0x00); }   # red
+    if (i == 6) { return bhumi_xrgb(0x00, 0x00, 0xFF); }   # blue
+    return 0;                                              # black
+}
+
+# Bar index owning column x in a framebuffer of the given width. Splits
+# [0,width) into BHUMI_BARS_N near-equal bars: bar = (x * N) / width. For
+# 0 <= x < width the result is always in [0, N-1]. Public so a test can
+# predict which bar a coordinate lands in without duplicating the math.
+fn bhumi_bar_index(width, x): i64 {
+    return (x * BHUMI_BARS_N) / width;
+}
+
+# Paint 7 vertical color bars across the whole framebuffer. Returns 0, or
+# -1 if fb is null.
+fn bhumi_pattern_bars(fb): i64 {
+    if (fb == 0) { return -1; }
+    var w = bhumi_fb_width(fb);
+    var h = bhumi_fb_height(fb);
+    var y = 0;
+    while (y < h) {
+        var x = 0;
+        while (x < w) {
+            bhumi_fb_set(fb, x, y, bhumi_bar_color(bhumi_bar_index(w, x)));
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return 0;
+}
+
+# ================================================================
+# XOR gradient — the classic (x ^ y) plaid, grayscale
+# ================================================================
+
+# Grayscale value of the XOR texture at (x,y): the low 8 bits of x ^ y.
+# Public so tests can predict a pixel without duplicating the math.
+fn bhumi_xor_value(x, y): i64 {
+    return (x ^ y) & 0xFF;
+}
+
+# Paint the XOR gradient across the whole framebuffer. A stride/pitch bug
+# shows up instantly as a sheared or wrapped plaid. Returns 0, or -1 if
+# fb is null.
+fn bhumi_pattern_xor(fb): i64 {
+    if (fb == 0) { return -1; }
+    var w = bhumi_fb_width(fb);
+    var h = bhumi_fb_height(fb);
+    var y = 0;
+    while (y < h) {
+        var x = 0;
+        while (x < w) {
+            var v = bhumi_xor_value(x, y);
+            bhumi_fb_set(fb, x, y, bhumi_xrgb(v, v, v));
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return 0;
+}

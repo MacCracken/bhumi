@@ -20,13 +20,18 @@
   set/get, and clear. Kernel scanout seam (agnodrm → `blit#39`) not yet wired —
   that ABI isn't in this checkout (agnos snapshot tops at 1.45.16 /
   `winsize#60`; `#39` is an unassigned gap).
+- `src/pattern.cyr` — **M1 in progress.** Bring-up test patterns over a
+  `BhumiFb`: SMPTE-style color bars and a grayscale XOR gradient. The "known
+  test pattern" of the M1 acceptance gate, rendered in userland until scanout.
 
 ## Tests
 
-- `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` framebuffer model
-  (29 assertions, passes on `cyrius test`). Source-includes `src/main.cyr` (see
+- `tests/bhumi.tcyr` — primary suite: smoke + `output.cyr` framebuffer model +
+  `pattern.cyr` patterns (54 assertions, passes on `cyrius test`).
+  Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
-- `tests/bhumi.bcyr` — benchmark stub (no-op)
+- `tests/bhumi.bcyr` — benchmarks: 720p color-bars / XOR full-frame paint
+  throughput (`cyrius bench tests/bhumi.bcyr`).
 - `tests/bhumi.fcyr` — fuzz stub
 
 ## Dependencies

@@ -59,6 +59,44 @@ fn main() {
     assert_eq(bhumi_fb_get(fb, 3, 2), blue, "clear fills last pixel");
     assert_eq(bhumi_fb_get(fb, 2, 1), blue, "clear fills interior");
 
+    # ----- pattern.cyr — bar color table + index ------------------
+    test_group("pattern.cyr — bhumi_bar_color / bhumi_bar_index");
+    assert_eq(bhumi_bar_color(0), bhumi_xrgb(0xFF, 0xFF, 0xFF), "bar 0 white");
+    assert_eq(bhumi_bar_color(1), bhumi_xrgb(0xFF, 0xFF, 0x00), "bar 1 yellow");
+    assert_eq(bhumi_bar_color(3), bhumi_xrgb(0x00, 0xFF, 0x00), "bar 3 green");
+    assert_eq(bhumi_bar_color(6), bhumi_xrgb(0x00, 0x00, 0xFF), "bar 6 blue");
+    assert_eq(bhumi_bar_color(7), 0, "out-of-range bar is black");
+    # 14 wide, 7 bars -> 2px per bar: bar = x/2.
+    assert_eq(bhumi_bar_index(14, 0),  0, "x=0 -> bar 0");
+    assert_eq(bhumi_bar_index(14, 1),  0, "x=1 -> bar 0");
+    assert_eq(bhumi_bar_index(14, 2),  1, "x=2 -> bar 1");
+    assert_eq(bhumi_bar_index(14, 13), 6, "x=13 -> bar 6 (last)");
+
+    # ----- pattern.cyr — bhumi_pattern_bars -----------------------
+    test_group("pattern.cyr — bhumi_pattern_bars");
+    var bars = bhumi_fb_new(14, 4);   # 2px per bar
+    assert_neq(bars, 0, "14x4 fb allocates");
+    assert_eq(bhumi_pattern_bars(bars), 0, "bars ok");
+    assert_eq(bhumi_fb_get(bars, 0, 0),  bhumi_bar_color(0), "col 0 white");
+    assert_eq(bhumi_fb_get(bars, 2, 0),  bhumi_bar_color(1), "col 2 yellow");
+    assert_eq(bhumi_fb_get(bars, 6, 0),  bhumi_bar_color(3), "col 6 green");
+    assert_eq(bhumi_fb_get(bars, 13, 0), bhumi_bar_color(6), "col 13 blue");
+    # Bars are column-defined: every row is identical.
+    assert_eq(bhumi_fb_get(bars, 6, 3), bhumi_fb_get(bars, 6, 0), "bars row-invariant");
+    assert_eq(bhumi_pattern_bars(0), -1, "null fb rejected");
+
+    # ----- pattern.cyr — bhumi_pattern_xor ------------------------
+    test_group("pattern.cyr — bhumi_pattern_xor");
+    var xg = bhumi_fb_new(4, 4);
+    assert_neq(xg, 0, "4x4 fb allocates");
+    assert_eq(bhumi_pattern_xor(xg), 0, "xor ok");
+    assert_eq(bhumi_xor_value(3, 1), 2, "xor value 3^1 = 2");
+    assert_eq(bhumi_fb_get(xg, 0, 0), 0, "(0,0): 0^0=0 -> black");
+    assert_eq(bhumi_fb_get(xg, 1, 0), bhumi_xrgb(1, 1, 1), "(1,0): 1^0=1 -> gray 1");
+    assert_eq(bhumi_fb_get(xg, 0, 1), bhumi_fb_get(xg, 1, 0), "xor symmetric (0,1)==(1,0)");
+    assert_eq(bhumi_fb_get(xg, 3, 1), bhumi_xrgb(2, 2, 2), "(3,1): 3^1=2 -> gray 2");
+    assert_eq(bhumi_pattern_xor(0), -1, "null fb rejected");
+
     return assert_summary();
 }
 
