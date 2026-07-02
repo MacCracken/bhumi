@@ -1,0 +1,55 @@
+# scanout-demo — the M1 acceptance artifact: a known test pattern reaching the
+# framebuffer end-to-end. On agnos it queries the display geometry, draws
+# SMPTE-style color bars sized to the screen, and blits them out — a human (or
+# QEMU) sees the bars. Off agnos it still builds and draws (present is a no-op),
+# so it doubles as a host smoke of the whole output path.
+#
+# Build (agnos): cyrius build --agnos programs/scanout-demo.cyr build/scanout-demo
+# Run on a real or QEMU agnos target; the console shows color bars.
+
+include "src/main.cyr"
+
+# Fallback geometry when there is no queryable framebuffer (non-agnos host, or
+# the agnos framebuffer isn't up yet).
+var DEMO_FALLBACK_W = 1280;
+var DEMO_FALLBACK_H = 720;
+
+fn main() {
+    alloc_init();
+
+    var info[24];
+    var w = DEMO_FALLBACK_W;
+    var h = DEMO_FALLBACK_H;
+
+    # Discover the real display geometry where available.
+    if (bhumi_output_query(&info) == BHUMI_FBINFO_SIZE) {
+        if (bhumi_fbinfo_present(&info) == 1) {
+            w = bhumi_fbinfo_width(&info);
+            h = bhumi_fbinfo_height(&info);
+            if (bhumi_output_format_ok(&info) == 0) {
+                println("scanout-demo: WARNING framebuffer reports RGBX; colors will be swapped");
+            }
+        }
+    }
+
+    print("scanout-demo: framebuffer ", 26);
+    print_num(w); print(" x ", 3); print_num(h); println("");
+
+    var fb = bhumi_fb_new(w, h);
+    if (fb == 0) {
+        println("scanout-demo: framebuffer alloc failed");
+        return 1;
+    }
+
+    bhumi_pattern_bars(fb);
+
+    if (bhumi_output_present(fb) == 0) {
+        println("scanout-demo: presented SMPTE bars to the framebuffer");
+        return 0;
+    }
+    println("scanout-demo: pattern drawn; present unavailable (non-agnos host / no framebuffer)");
+    return 0;
+}
+
+var r = main();
+syscall(SYS_EXIT, r);

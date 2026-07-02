@@ -136,6 +136,45 @@ fn main() {
     assert_eq(bhumi_output_present(sfb),  -1, "present -1 on non-agnos host (no framebuffer)");
     assert_eq(bhumi_output_query(&info),  -1, "query -1 on non-agnos host (no framebuffer)");
 
+    # ----- edge cases ---------------------------------------------
+    test_group("edge cases");
+    # 1x1 framebuffer — the smallest valid surface.
+    var one = bhumi_fb_new(1, 1);
+    assert_neq(one, 0, "1x1 fb allocates");
+    assert_eq(bhumi_fb_pitch(one), 4, "1x1 pitch = 4");
+    assert_eq(bhumi_fb_size(one),  4, "1x1 size = 4");
+    assert_eq(bhumi_fb_set(one, 0, 0, 0x123456), 0, "1x1 set (0,0) ok");
+    assert_eq(bhumi_fb_get(one, 0, 0), 0x123456, "1x1 get round-trip");
+    assert_eq(bhumi_fb_set(one, 1, 0, 0), -1, "1x1 (1,0) OOB");
+    assert_eq(bhumi_fb_set(one, 0, 1, 0), -1, "1x1 (0,1) OOB");
+
+    # Max-dim boundary is accepted for a thin buffer (16384x1 = 64 KiB).
+    var mx = bhumi_fb_new(BHUMI_FB_MAX_DIM, 1);
+    assert_neq(mx, 0, "max-dim x 1 allocates");
+    assert_eq(bhumi_fb_width(mx), BHUMI_FB_MAX_DIM, "max-dim width");
+
+    # Bars on a width not divisible by 7: bar = (x*7)/w still covers [0,6].
+    var b10 = bhumi_fb_new(10, 2);
+    bhumi_pattern_bars(b10);
+    assert_eq(bhumi_bar_index(10, 2), 1, "10-wide col 2 -> bar 1");
+    assert_eq(bhumi_fb_get(b10, 0, 0), bhumi_bar_color(0), "10-wide col 0 = white");
+    assert_eq(bhumi_fb_get(b10, 9, 0), bhumi_bar_color(6), "10-wide col 9 = blue");
+
+    # fbinfo present flag reads ONLY bit 0, whatever the high bits are.
+    var info2[24];
+    store32(&info2 + BHUMI_FBINFO_FLAGS, 0xFFFFFFFE);
+    assert_eq(bhumi_fbinfo_present(&info2), 0, "0xFFFFFFFE -> present 0");
+    store32(&info2 + BHUMI_FBINFO_FLAGS, 0xFFFFFFFF);
+    assert_eq(bhumi_fbinfo_present(&info2), 1, "0xFFFFFFFF -> present 1");
+
+    # A framebuffer sized from queried geometry (the demo's path).
+    store32(&info2 + BHUMI_FBINFO_WIDTH,  64);
+    store32(&info2 + BHUMI_FBINFO_HEIGHT, 48);
+    var qfb = bhumi_fb_new(bhumi_fbinfo_width(&info2), bhumi_fbinfo_height(&info2));
+    assert_neq(qfb, 0, "fb from queried geometry allocates");
+    assert_eq(bhumi_fb_width(qfb),  64, "geometry-sized width");
+    assert_eq(bhumi_fb_height(qfb), 48, "geometry-sized height");
+
     return assert_summary();
 }
 

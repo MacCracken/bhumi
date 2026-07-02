@@ -23,13 +23,21 @@ _Define before tagging v0.1.0:_
 - Doc-tree per [first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
 - ADRs / architecture notes / guides / examples folders ready
 
-### M1 — Output: agnodrm scanout (v0.2.0)
+### M1 — Output: framebuffer scanout (v0.2.0) — ✅ shipped 2026-07-02
 
-`src/output.cyr` — enumerate the display via **agnodrm** (DRM/KMS device model),
-acquire a scanout target, and push a framebuffer to the screen through the agnos
-kernel `blit#39` path. Acceptance: a known test pattern reaches a real (or QEMU)
-framebuffer end-to-end. **Dep gate**: agnodrm DRM/KMS surface; kernel `blit#39`
-(landed).
+`src/output.cyr` (software `BhumiFb`), `src/scanout.cyr` (kernel handoff), and
+`src/pattern.cyr` (test patterns). The display is queried and a framebuffer
+pushed to the screen through the agnos kernel **`fbinfo`#38 / `blit`#39** path
+(the syscalls landed agnos 1.51.0 — there is no separate agnodrm mode surface
+for a single fixed-mode scanout; the syscalls are the surface). See
+[ADR 0001](../adr/0001-scanout-via-agnos-fbinfo-blit.md).
+
+Code-complete against the real ABI and verified cross-target: the `--agnos`
+build emits `syscall` #38/#39, 86 host assertions pass, and the fuzz harness
+holds. **Acceptance** — a known test pattern reaching a real (or QEMU)
+framebuffer end-to-end — is carried by `programs/scanout-demo.cyr`; running it
+on agnos hardware/QEMU for the visual confirmation is a manual downstream step
+(not reachable from host CI, matching the sibling agnos-lib precedent).
 
 ### M2 — Input: kernel event source (v0.3.0)
 

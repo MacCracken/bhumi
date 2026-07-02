@@ -1,0 +1,158 @@
+# fuzz/bhumi.fcyr — property fuzz over bhumi's public output surface.
+#
+# Runs `cyrius fuzz`. Drives the framebuffer / pattern / fbinfo API with random
+# inputs and asserts invariants; on any violation it writes FAIL: ... to stderr
+# and exits non-zero (cyrius fuzz reports it). Heap-safe: three framebuffers are
+# allocated ONCE up front (bhumi's alloc is a bump allocator with no per-object
+# free), and the hot loop only touches those + stack buffers + pure functions.
+#
+# lib/args.cyr is fuzz-only (not a library dep) so an operator can override the
+# iteration count / seed: `cyrius fuzz` runs with the defaults.
+
+include "lib/args.cyr"
+include "src/main.cyr"
+
+# ---- LCG PRNG (deterministic; same family as sibling fuzz harnesses) --------
+var _fz = 0x2545F4914F6CDD1D;
+
+fn _fz_next(): i64 {
+    _fz = (_fz * 6364136223846793005) + 1442695040888963407;
+    return _fz;
+}
+
+# Non-negative value in [0, n) for n > 0.
+fn _fz_mod(n): i64 {
+    var r = _fz_next();
+    if (r < 0) { r = 0 - r; }
+    if (r < 0) { r = 0; }        # 0 - INT_MIN stays negative; clamp it
+    return r % n;
+}
+
+fn _fz_fail(msg): i64 {
+    syscall(1, 2, msg, strlen(msg));
+    syscall(60, 1);
+    return 1;
+}
+
+fn main(): i64 {
+    alloc_init();
+    args_init();
+
+    var iters = 20000;
+    if (argc() > 1) { iters = atoi(argv(1)); }
+    if (argc() > 2) { _fz = atoi(argv(2)); }
+
+    # Fixed framebuffers (odd dims stress the pitch math). Allocated once.
+    var wfb = bhumi_fb_new(37, 29);   # mutated by set/get fuzz
+    var bfb = bhumi_fb_new(33, 8);    # bars, drawn once, read-only
+    var xfb = bhumi_fb_new(24, 18);   # xor,  drawn once, read-only
+    if (wfb == 0) { return _fz_fail("FAIL: wfb alloc\n"); }
+    if (bfb == 0) { return _fz_fail("FAIL: bfb alloc\n"); }
+    if (xfb == 0) { return _fz_fail("FAIL: xfb alloc\n"); }
+    bhumi_pattern_bars(bfb);
+    bhumi_pattern_xor(xfb);
+
+    var wfw = bhumi_fb_width(wfb);
+    var wfh = bhumi_fb_height(wfb);
+    var bfw = bhumi_fb_width(bfb);
+    var bfh = bhumi_fb_height(bfb);
+    var xfw = bhumi_fb_width(xfb);
+    var xfh = bhumi_fb_height(xfb);
+
+    var info[24];
+
+    # Guards are input-independent — check once.
+    if (bhumi_output_present(0) != 0 - 1) { return _fz_fail("FAIL: present(null) != -1\n"); }
+    if (bhumi_output_query(0)   != 0 - 1) { return _fz_fail("FAIL: query(null) != -1\n"); }
+
+    var i = 0;
+    while (i < iters) {
+        # --- bhumi_xrgb masks channels to 8 bits, X byte always 0 ---
+        var pr = _fz_next();
+        var pg = _fz_next();
+        var pb = _fz_next();
+        var px = bhumi_xrgb(pr, pg, pb);
+        if (px < 0)          { return _fz_fail("FAIL: xrgb negative\n"); }
+        if (px > 0xFFFFFF)   { return _fz_fail("FAIL: xrgb X byte set\n"); }
+        if (px != ((((pr & 0xFF) << 16) | ((pg & 0xFF) << 8)) | (pb & 0xFF))) {
+            return _fz_fail("FAIL: xrgb pack mismatch\n");
+        }
+
+        # --- bhumi_fb_new rejects out-of-range dims WITHOUT allocating ---
+        var maxd = BHUMI_FB_MAX_DIM;
+        if (bhumi_fb_new(0, 1)          != 0) { return _fz_fail("FAIL: fb_new w=0\n"); }
+        if (bhumi_fb_new(1, 0)          != 0) { return _fz_fail("FAIL: fb_new h=0\n"); }
+        if (bhumi_fb_new(0 - (_fz_mod(9999) + 1), 8) != 0) { return _fz_fail("FAIL: fb_new w<0\n"); }
+        if (bhumi_fb_new(8, 0 - (_fz_mod(9999) + 1)) != 0) { return _fz_fail("FAIL: fb_new h<0\n"); }
+        if (bhumi_fb_new(maxd + 1 + _fz_mod(9999), 8) != 0) { return _fz_fail("FAIL: fb_new w>max\n"); }
+
+        # --- set/get bounds contract on wfb; x,y range straddles the edges ---
+        var x = _fz_mod(wfw + 8) - 4;
+        var y = _fz_mod(wfh + 8) - 4;
+        var inb = 0;
+        if ((((x >= 0) && (x < wfw)) && (y >= 0)) && (y < wfh)) { inb = 1; }
+        var rc = bhumi_fb_set(wfb, x, y, px);
+        if (inb == 1) {
+            if (rc != 0) { return _fz_fail("FAIL: in-bounds set != 0\n"); }
+            if (bhumi_fb_get(wfb, x, y) != px) { return _fz_fail("FAIL: set/get round-trip\n"); }
+        }
+        if (inb == 0) {
+            if (rc != 0 - 1) { return _fz_fail("FAIL: OOB set != -1\n"); }
+            if (bhumi_fb_get(wfb, x, y) != 0 - 1) { return _fz_fail("FAIL: OOB get != -1\n"); }
+        }
+
+        # --- bhumi_bar_index always lands in [0, BHUMI_BARS_N-1] ---
+        var bw = _fz_mod(4096) + 1;
+        var bx = _fz_mod(bw);
+        var bi = bhumi_bar_index(bw, bx);
+        if (bi < 0)                { return _fz_fail("FAIL: bar_index < 0\n"); }
+        if (bi > BHUMI_BARS_N - 1) { return _fz_fail("FAIL: bar_index >= N\n"); }
+        var bc = bhumi_bar_color(bi);
+        if (bc < 0)        { return _fz_fail("FAIL: bar_color negative\n"); }
+        if (bc > 0xFFFFFF) { return _fz_fail("FAIL: bar_color X byte set\n"); }
+
+        # --- bars pattern: pixel == color of the bar owning that column ---
+        var sbx = _fz_mod(bfw);
+        var sby = _fz_mod(bfh);
+        if (bhumi_fb_get(bfb, sbx, sby) != bhumi_bar_color(bhumi_bar_index(bfw, sbx))) {
+            return _fz_fail("FAIL: bars pixel mismatch\n");
+        }
+
+        # --- xor pattern: pixel == gray((x^y)&0xFF) ---
+        var sxx = _fz_mod(xfw);
+        var sxy = _fz_mod(xfh);
+        var v = bhumi_xor_value(sxx, sxy);
+        if (v != ((sxx ^ sxy) & 0xFF)) { return _fz_fail("FAIL: xor_value mismatch\n"); }
+        if (bhumi_fb_get(xfb, sxx, sxy) != bhumi_xrgb(v, v, v)) {
+            return _fz_fail("FAIL: xor pixel mismatch\n");
+        }
+
+        # --- fbinfo accessors round-trip a synthetic 24-byte struct ---
+        var fw = _fz_mod(8192);
+        var fh = _fz_mod(8192);
+        var fp = _fz_mod(65536);
+        var fmt = _fz_mod(2);
+        var flg = _fz_next() & 0xFFFF;
+        store32(&info + BHUMI_FBINFO_WIDTH,  fw);
+        store32(&info + BHUMI_FBINFO_HEIGHT, fh);
+        store32(&info + BHUMI_FBINFO_PITCH,  fp);
+        store32(&info + BHUMI_FBINFO_BPP,    32);
+        store32(&info + BHUMI_FBINFO_PXFMT,  fmt);
+        store32(&info + BHUMI_FBINFO_FLAGS,  flg);
+        if (bhumi_fbinfo_width(&info)  != fw) { return _fz_fail("FAIL: fbinfo width\n"); }
+        if (bhumi_fbinfo_height(&info) != fh) { return _fz_fail("FAIL: fbinfo height\n"); }
+        if (bhumi_fbinfo_pitch(&info)  != fp) { return _fz_fail("FAIL: fbinfo pitch\n"); }
+        if (bhumi_fbinfo_present(&info) != (flg & 1)) { return _fz_fail("FAIL: fbinfo present\n"); }
+        var want_ok = 0;
+        if (fmt == 1) { want_ok = 1; }
+        if (bhumi_output_format_ok(&info) != want_ok) { return _fz_fail("FAIL: format_ok\n"); }
+
+        i = i + 1;
+    }
+
+    println("fuzz: bhumi output surface — all invariants held");
+    return 0;
+}
+
+var r = main();
+syscall(60, r);

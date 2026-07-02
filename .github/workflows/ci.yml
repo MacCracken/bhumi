@@ -48,3 +48,19 @@ jobs:
         # stub didn't exist (Issue 1) and also wouldn't ever exercise
         # tests/${proj}.tcyr.
         run: cyrius test
+
+      - name: Cross-compile (agnos)
+        # src/scanout.cyr's kernel path (fbinfo#38 / blit#39) is agnos-only,
+        # behind #ifdef CYRIUS_TARGET_AGNOS, so host `cyrius test` can't reach
+        # it. Gate the agnos target here — this compiles + links the syscall
+        # wrappers. Mirrors the darshana precedent (cross-compile gate; real
+        # hardware/QEMU acceptance is a separate, manual step). scanout-demo is
+        # the M1 acceptance artifact (draws a test pattern + blits it out).
+        run: |
+          cyrius build --agnos programs/smoke.cyr build/${{ github.event.repository.name }}-smoke-agnos
+          cyrius build --agnos programs/scanout-demo.cyr build/scanout-demo-agnos
+
+      - name: Fuzz
+        # Property fuzz over the public output surface (fuzz/bhumi.fcyr):
+        # framebuffer bounds, pixel packing, pattern + fbinfo invariants.
+        run: cyrius fuzz
