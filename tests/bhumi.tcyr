@@ -6,6 +6,15 @@
 # source-includes the module.
 include "src/main.cyr"
 
+# Stub Ed25519 verifier for the bhumi_cap_verify hook test — stands in for
+# sigil's ed25519_verify(pk, msg, msg_len, sig). "Valid" iff pubkey[0]==0xCD
+# and sig[0]==0xAB, so the test can drive good/bad key and good/bad signature.
+fn _test_ed_verify(pk, msg, msg_len, sig): i64 {
+    if (load8(pk) != 0xCD) { return 0; }
+    if (load8(sig) != 0xAB) { return 0; }
+    return 1;
+}
+
 fn main() {
     alloc_init();
     test_group("smoke");
@@ -405,6 +414,40 @@ fn main() {
     # bhumi_cap_new OOM) must return 0, never dereference address 0.
     assert_eq(bhumi_backend_open(0, 64, 48), 0, "backend_open(null cap) -> 0, no crash");
     assert_eq(bhumi_cap_subject(0), 0, "cap_subject(null) -> 0");
+
+    # ----- seat.cyr — optional provenance verify hook (BHUMI_CAP_SIG) --
+    test_group("seat.cyr — bhumi_cap_verify");
+    var vcap = bhumi_cap_new(0x11, 0x22, 0x33, 0x44);
+    var msgbuf[32];
+    assert_eq(bhumi_cap_signed_bytes(vcap, &msgbuf), 32, "signed bytes = 32");
+    assert_eq(load64(&msgbuf + 0),  0x11, "msg +0  = subject");
+    assert_eq(load64(&msgbuf + 8),  0x22, "msg +8  = devices");
+    assert_eq(load64(&msgbuf + 16), 0x33, "msg +16 = expiry");
+    assert_eq(load64(&msgbuf + 24), 0x44, "msg +24 = issuer");
+
+    var pk[32];
+    store8(&pk, 0xCD);                                  # the trusted issuer key
+    # Unsigned cap never verifies.
+    assert_eq(bhumi_cap_verify(vcap, &_test_ed_verify, &pk), 0, "unsigned cap -> 0");
+    # Attach a good signature -> verifies.
+    var goodsig[64];
+    store8(&goodsig, 0xAB);
+    bhumi_cap_set_sig(vcap, &goodsig);
+    assert_neq(bhumi_cap_sig(vcap), 0, "sig attached");
+    assert_eq(bhumi_cap_verify(vcap, &_test_ed_verify, &pk), 1, "good sig + trusted key -> verified");
+    # Bad signature -> fails.
+    var badsig[64];
+    store8(&badsig, 0x00);
+    bhumi_cap_set_sig(vcap, &badsig);
+    assert_eq(bhumi_cap_verify(vcap, &_test_ed_verify, &pk), 0, "bad signature -> not verified");
+    # Wrong issuer key -> fails.
+    bhumi_cap_set_sig(vcap, &goodsig);
+    var badpk[32];
+    store8(&badpk, 0x00);
+    assert_eq(bhumi_cap_verify(vcap, &_test_ed_verify, &badpk), 0, "wrong issuer key -> not verified");
+    # Null verifier / null cap -> 0 (no crash).
+    assert_eq(bhumi_cap_verify(vcap, 0, &pk), 0, "null verifier -> 0");
+    assert_eq(bhumi_cap_verify(0, &_test_ed_verify, &pk), 0, "null cap -> 0");
 
     return assert_summary();
 }

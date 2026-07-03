@@ -9,11 +9,11 @@
 _Define before tagging v0.1.0:_
 
 - [ ] Public API frozen — every exported symbol documented and tested
-- [ ] Test coverage adequate for the surface area
-- [ ] Benchmarks captured in `docs/benchmarks.md`
-- [ ] At least one downstream consumer green
-- [ ] CHANGELOG complete from v0.1.0 onward
-- [ ] Security audit pass (`docs/audit/YYYY-MM-DD-audit.md`)
+- [x] Test coverage adequate for the surface area — 200 assertions + `bhumi.fcyr` fuzz
+- [ ] Benchmarks captured in `docs/benchmarks.md` — bench harness exists; doc pending
+- [ ] At least one downstream consumer green — demos are stand-ins; real aethersafha pending (M4 acceptance is by cross-compile + frame-loop demo)
+- [x] CHANGELOG complete from v0.1.0 onward
+- [x] Security audit pass — [`docs/audit/2026-07-02-audit.md`](../audit/2026-07-02-audit.md) (0 critical/high)
 
 ## Milestones
 

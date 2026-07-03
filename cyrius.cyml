@@ -18,4 +18,4 @@ output = "build/bhumi-smoke"
 modules = ["src/output.cyr", "src/scanout.cyr", "src/pattern.cyr", "src/input.cyr", "src/kbscan.cyr", "src/seat.cyr", "src/backend.cyr"]
 
 [deps]
-stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert", "bench"]
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert", "bench", "fnptr"]

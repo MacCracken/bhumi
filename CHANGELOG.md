@@ -4,6 +4,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-07-02
+
+### Added
+- `bhumi_cap_verify` — optional capability-provenance verification, the reserved
+  `BHUMI_CAP_SIG` hook anticipated by [ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md).
+  `bhumi_cap_signed_bytes` serializes a capability's authenticated fields
+  (subject|devices|expiry|issuer, 32 bytes LE) and `bhumi_cap_verify(cap,
+  verify_fn, pubkey)` calls a **caller-supplied** Ed25519 verifier (e.g. sigil's
+  `ed25519_verify`) through a function pointer — bhumi embeds no crypto and no
+  keystore. Plus `bhumi_cap_set_sig` / `bhumi_cap_sig`. Opt-in: the default seat
+  gate stays possession-based. Adds the `fnptr` stdlib dep. +12 tests (200).
+- `docs/audit/2026-07-02-audit.md` — the first formal security audit (adversarial
+  review + code-pattern scan + fuzz + cross-target ABI verification). 0
+  critical/high; F-1 (null-capability crash) fixed in 0.5.0; F-2 (lean-enforcer
+  trust) documented and mitigated by the new verify hook. Satisfies the v1.0
+  "security audit pass" criterion.
+
 ## [0.5.0] — 2026-07-02
 
 **M4 — Assembled backend.** output + input + seat fold into one `BhumiBackend`

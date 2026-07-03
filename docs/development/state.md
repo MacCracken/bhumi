@@ -5,9 +5,9 @@
 
 ## Version
 
-**0.5.0** — M4 (assembled backend) shipped 2026-07-02 — all four roadmap
-milestones complete. M3 (seat) 0.4.0; M2 (input) 0.3.0; M1 (output) 0.2.0;
-scaffolded 2026-06-29 (0.1.0).
+**0.5.1** — optional capability-verify hook + first formal security audit.
+M4 (assembled backend) 0.5.0 completed the four roadmap milestones; M3 0.4.0;
+M2 0.3.0; M1 0.2.0; scaffolded 2026-06-29 (0.1.0).
 
 ## Toolchain
 
@@ -49,7 +49,9 @@ scaffolded 2026-06-29 (0.1.0).
   through `bhumi_seat_present` / `_poll`, which only pass for an active seat
   holding a valid capability; `bhumi_seatmgr_switch` keeps exactly one active.
   bhumi *enforces* capabilities; sigil issues, kavach sandboxes
-  ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
+  ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)). 0.5.1 adds the
+  opt-in `bhumi_cap_verify` provenance hook (caller-supplied Ed25519; no crypto
+  in bhumi).
 - `programs/seat-demo.cyr` — **M3 acceptance artifact.** Traces device access
   following the foreground across hand-offs; background seats DENIED. Portable.
 - `src/backend.cyr` — **M4.** The assembled `BhumiBackend` handle aethersafha
@@ -70,16 +72,16 @@ Visual/interactive acceptance (`scanout-demo`, `input-demo`, `seat-demo`,
 **Pointer input is deferred** — no pointer syscall exists (surface tops at
 1.51.0), so input is keyboard-only.
 
-Beyond the milestones, toward **v1.0** (see [roadmap.md](roadmap.md) criteria):
-real aethersafha wired as the downstream consumer, a `docs/benchmarks.md`, and a
-formal `docs/audit/` pass. The optional sigil Ed25519 verify hook (reserved
-`BHUMI_CAP_SIG`) lands if the threat model requires it; pointer input lands when
-the kernel exposes a pointer syscall.
+Toward **v1.0** (see [roadmap.md](roadmap.md) criteria): the security-audit pass
+([`docs/audit/2026-07-02-audit.md`](audit/2026-07-02-audit.md)) and the optional
+capability-verify hook (`bhumi_cap_verify`) landed in 0.5.1. Remaining: real
+aethersafha wired as the downstream consumer, a `docs/benchmarks.md`, and a frozen
+public API. Pointer input lands when the kernel exposes a pointer syscall.
 
 ## Tests
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
-  `input` / `kbscan` / `seat` / `backend` + edge cases (188 assertions, passes on
+  `input` / `kbscan` / `seat` / `backend` + edge cases (200 assertions, passes on
   `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface
@@ -92,7 +94,7 @@ the kernel exposes a pointer syscall.
 
 Direct (declared in `cyrius.cyml`):
 
-- stdlib — string, fmt, alloc, io, vec, str, syscalls, assert, bench
+- stdlib — string, fmt, alloc, io, vec, str, syscalls, assert, bench, fnptr
 
 ## Consumers
 
