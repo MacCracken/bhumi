@@ -79,6 +79,11 @@ fn main(): i64 {
     bhumi_seat_grant(fzs1, fzcap_all);
     bhumi_seat_grant(fzs2, fzcap_out);
 
+    # One assembled backend (opened once — a fresh open would allocate a
+    # framebuffer per iteration and grow the heap).
+    var fzbe = bhumi_backend_open(bhumi_cap_new(9, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 0), 16, 16);
+    if (fzbe == 0) { return _fz_fail("FAIL: backend open\n"); }
+
     # Guards are input-independent — check once.
     if (bhumi_output_present(0) != 0 - 1) { return _fz_fail("FAIL: present(null) != -1\n"); }
     if (bhumi_output_query(0)   != 0 - 1) { return _fz_fail("FAIL: query(null) != -1\n"); }
@@ -222,10 +227,22 @@ fn main(): i64 {
             if (bhumi_seat_can(fzs1, BHUMI_DEV_INPUT, 1000) != 0) { return _fz_fail("FAIL: background seat granted access\n"); }
         }
 
+        # --- backend gate: a backgrounded backend is denied, a foreground one not ---
+        var bop = _fz_mod(2);
+        if (bop == 0) { bhumi_backend_deactivate(fzbe); }
+        if (bop == 1) { bhumi_backend_activate(fzbe); }
+        var bpres = bhumi_backend_present(fzbe, 1000);
+        if (bhumi_seat_active(bhumi_backend_seat(fzbe)) == 0) {
+            if (bpres != BHUMI_SEAT_DENIED) { return _fz_fail("FAIL: backgrounded backend not denied\n"); }
+        }
+        if (bhumi_seat_active(bhumi_backend_seat(fzbe)) == 1) {
+            if (bpres == BHUMI_SEAT_DENIED) { return _fz_fail("FAIL: foreground backend wrongly denied\n"); }
+        }
+
         i = i + 1;
     }
 
-    println("fuzz: bhumi output + input + seat surface — all invariants held");
+    println("fuzz: bhumi output + input + seat + backend surface — all invariants held");
     return 0;
 }
 

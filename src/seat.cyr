@@ -68,7 +68,7 @@ fn bhumi_cap_new(subject, devices, expiry, issuer): i64 {
     return c;
 }
 
-fn bhumi_cap_subject(c): i64 { return load64(c + BHUMI_CAP_SUBJECT); }
+fn bhumi_cap_subject(c): i64 { if (c == 0) { return 0; } return load64(c + BHUMI_CAP_SUBJECT); }
 fn bhumi_cap_devices(c): i64 { return load64(c + BHUMI_CAP_DEVICES); }
 fn bhumi_cap_expiry(c): i64  { return load64(c + BHUMI_CAP_EXPIRY); }
 fn bhumi_cap_issuer(c): i64  { return load64(c + BHUMI_CAP_ISSUER); }

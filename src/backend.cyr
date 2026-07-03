@@ -45,6 +45,7 @@ enum BhumiBackendLayout {
 # owned FOREGROUND seat granted `cap`, and an input cursor. Returns the backend
 # handle, or 0 on invalid dimensions / OOM.
 fn bhumi_backend_open(cap, width, height): i64 {
+    if (cap == 0) { return 0; }   # no capability -> nothing to gate on; refuse
     var fb = bhumi_fb_new(width, height);
     if (fb == 0) { return 0; }
     var seat = bhumi_seat_new(bhumi_cap_subject(cap));

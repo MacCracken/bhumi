@@ -4,13 +4,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-02
+
+**M4 — Assembled backend.** output + input + seat fold into one `BhumiBackend`
+handle a downstream consumer drives a frame loop against — the last roadmap
+milestone. This makes bhumi a *usable* backend rather than three modules.
+
 ### Added
-- `src/backend.cyr` — the M4 assembled backend: the single `BhumiBackend` handle
+- `src/backend.cyr` — the assembled backend: the single `BhumiBackend` handle
   aethersafha instantiates. `bhumi_backend_open(cap, w, h)` folds a primary
   framebuffer (M1), an input cursor (M2), and an owned foreground seat (M3) into
   one handle; the frame-loop API — `bhumi_backend_fb` / `_poll` / `_present`,
   with `_activate` / `_deactivate` for VT-switch — routes every device op through
-  the seat gate, so a backgrounded backend is DENIED. +13 tests (186).
+  the seat gate, so a backgrounded backend is DENIED.
+- `programs/backend-demo.cyr` — the M4 acceptance artifact: an aethersafha
+  stand-in driving a `poll → draw → present` frame loop through one handle, then
+  a backgrounded frame DENIED. The `--agnos` build emits all three device
+  syscalls (`fbinfo`#38, `blit`#39, `kbscan`#42).
+- `tests/bhumi.tcyr` — +15 assertions over `backend.cyr` (open/geometry, gated
+  frame-loop ops, VT-switch DENIED, scoped-capability, null-cap safety); 188.
+- `fuzz/bhumi.fcyr` — extended with the backend gate (backgrounded ⇒ DENIED).
+
+### Fixed
+- `bhumi_backend_open` / `bhumi_cap_subject` — null-capability crash. A null `cap`
+  (e.g. `bhumi_cap_new` returned 0 on OOM) was dereferenced at address 0 instead
+  of returning 0 per contract. Both now guard `cap == 0`. Found by the
+  pre-release adversarial review.
 
 ### Removed
 - `bhumi_scaffold_ok` — the M0 scaffold sentinel in `src/main.cyr`, retired now

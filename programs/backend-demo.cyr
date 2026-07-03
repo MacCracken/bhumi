@@ -1,0 +1,66 @@
+# backend-demo — the M4 acceptance artifact: a downstream consumer (an
+# aethersafha stand-in) driving a frame loop against the single assembled
+# BhumiBackend handle. It queries geometry, opens the backend with a capability,
+# then loops: poll input -> render a test pattern -> present — all through one
+# handle, all gated by the seat. Finally it shows a backgrounded frame denied.
+#
+# On agnos the loop reads the real keyboard and scans out; on a host there is no
+# device, so poll returns 0 and present returns -1, but the assembled path runs.
+#
+# Build: cyrius build programs/backend-demo.cyr build/backend-demo   (or --agnos)
+
+include "src/main.cyr"
+
+fn _emit(s): i64 { return print(s, strlen(s)); }
+
+fn main() {
+    alloc_init();
+    var now = 1000;
+
+    # Display geometry: query on agnos, 720p fallback off-agnos.
+    var info[24];
+    var w = 1280;
+    var h = 720;
+    if (bhumi_output_query(&info) == BHUMI_FBINFO_SIZE) {
+        if (bhumi_fbinfo_present(&info) == 1) {
+            w = bhumi_fbinfo_width(&info);
+            h = bhumi_fbinfo_height(&info);
+        }
+    }
+
+    # The seat authority (sigil/kavach) issues the capability; here the demo
+    # stands in for it with a local output+input grant.
+    var cap = bhumi_cap_new(1, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 0);
+    var be = bhumi_backend_open(cap, w, h);
+    if (be == 0) { println("backend-demo: open failed"); return 1; }
+
+    _emit("backend-demo: opened ");
+    print_num(bhumi_backend_width(be)); _emit("x"); print_num(bhumi_backend_height(be));
+    println(" (output+input, foreground)");
+
+    var fb = bhumi_backend_fb(be);
+    var evs[32];
+    var frame = 0;
+    while (frame < 3) {
+        var n = bhumi_backend_poll(be, &evs, 32, now);   # gated input drain
+        bhumi_pattern_bars(fb);                           # render this frame
+        var rc = bhumi_backend_present(be, now);          # gated scan-out
+        _emit("  frame "); print_num(frame);
+        _emit(": input=");  print_num(n);
+        _emit(" present=");  print_num(rc);
+        println("");
+        frame = frame + 1;
+    }
+
+    # VT-switch away: the very next frame is denied at the gate.
+    bhumi_backend_deactivate(be);
+    _emit("  backgrounded frame: present=");
+    print_num(bhumi_backend_present(be, now));
+    println("  (BHUMI_SEAT_DENIED)");
+
+    println("backend-demo: one handle drove output + input + seat.");
+    return 0;
+}
+
+var r = main();
+syscall(SYS_EXIT, r);

@@ -401,6 +401,11 @@ fn main() {
     assert_neq(bhumi_backend_present(be2, 1000), BHUMI_SEAT_DENIED, "output-only backend can present");
     assert_eq(bhumi_backend_poll(be2, &bevs, 1, 1000), BHUMI_SEAT_DENIED, "output-only backend poll -> DENIED");
 
+    # Null-capability safety (regression — pre-release review): a null cap (e.g.
+    # bhumi_cap_new OOM) must return 0, never dereference address 0.
+    assert_eq(bhumi_backend_open(0, 64, 48), 0, "backend_open(null cap) -> 0, no crash");
+    assert_eq(bhumi_cap_subject(0), 0, "cap_subject(null) -> 0");
+
     return assert_summary();
 }
 

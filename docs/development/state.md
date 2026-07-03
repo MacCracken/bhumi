@@ -5,8 +5,9 @@
 
 ## Version
 
-**0.4.0** — M3 (seat / capability-gated device access) shipped 2026-07-02.
-M2 (input) 0.3.0; M1 (output) 0.2.0; scaffolded 2026-06-29 (0.1.0).
+**0.5.0** — M4 (assembled backend) shipped 2026-07-02 — all four roadmap
+milestones complete. M3 (seat) 0.4.0; M2 (input) 0.3.0; M1 (output) 0.2.0;
+scaffolded 2026-06-29 (0.1.0).
 
 ## Toolchain
 
@@ -51,29 +52,34 @@ M2 (input) 0.3.0; M1 (output) 0.2.0; scaffolded 2026-06-29 (0.1.0).
   ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
 - `programs/seat-demo.cyr` — **M3 acceptance artifact.** Traces device access
   following the foreground across hand-offs; background seats DENIED. Portable.
-- `src/backend.cyr` — **M4 in progress.** The assembled `BhumiBackend` handle
-  aethersafha instantiates: `bhumi_backend_open(cap, w, h)` folds a primary
-  framebuffer + input cursor + owned foreground seat; `bhumi_backend_fb` /
-  `_poll` / `_present` / `_activate` / `_deactivate` are the gated frame-loop API.
-  (The M0 `bhumi_scaffold_ok` sentinel is now removed — backend.cyr is the real
-  public surface.)
+- `src/backend.cyr` — **M4.** The assembled `BhumiBackend` handle aethersafha
+  instantiates: `bhumi_backend_open(cap, w, h)` folds a primary framebuffer +
+  input cursor + owned foreground seat; `bhumi_backend_fb` / `_poll` / `_present`
+  / `_activate` / `_deactivate` are the gated frame-loop API. (The M0
+  `bhumi_scaffold_ok` sentinel is removed — backend.cyr is the real surface.)
+- `programs/backend-demo.cyr` — **M4 acceptance artifact.** aethersafha stand-in:
+  a `poll → draw → present` frame loop through one handle (`--agnos` emits
+  `fbinfo`#38 / `blit`#39 / `kbscan`#42), then a backgrounded frame DENIED.
 
-**M1 (v0.2.0), M2 (v0.3.0), M3 (v0.4.0) shipped; M4 in progress** — verified
-cross-target (host: 186 assertions + fuzz; agnos: emits `syscall` #38/#39 output,
-#42 input; the seat gate + backend are pure userland). Visual/interactive
-acceptance (`scanout-demo`, `input-demo`, `seat-demo`) is a manual downstream
-step, not reachable from host CI. **Pointer input is deferred** — no pointer
-syscall exists (surface tops at 1.51.0), so input is keyboard-only.
+**All four roadmap milestones shipped** — M1 (v0.2.0), M2 (v0.3.0), M3 (v0.4.0),
+M4 (v0.5.0). Verified cross-target (host: 188 assertions + fuzz + a pre-release
+adversarial review; agnos: `backend-demo` emits `syscall` #38/#39 output, #42
+input through one handle; the seat gate + backend are pure userland).
+Visual/interactive acceptance (`scanout-demo`, `input-demo`, `seat-demo`,
+`backend-demo`) is a manual downstream step, not reachable from host CI.
+**Pointer input is deferred** — no pointer syscall exists (surface tops at
+1.51.0), so input is keyboard-only.
 
-M4 landed the assembled `backend.cyr` handle (folds output + input + seat; the
-`bhumi_scaffold_ok` sentinel is gone). To close v0.5.0: a frame-loop demo
-(aethersafha stand-in), fuzz over the backend, and the version cut — first
-downstream consumer green.
+Beyond the milestones, toward **v1.0** (see [roadmap.md](roadmap.md) criteria):
+real aethersafha wired as the downstream consumer, a `docs/benchmarks.md`, and a
+formal `docs/audit/` pass. The optional sigil Ed25519 verify hook (reserved
+`BHUMI_CAP_SIG`) lands if the threat model requires it; pointer input lands when
+the kernel exposes a pointer syscall.
 
 ## Tests
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
-  `input` / `kbscan` / `seat` / `backend` + edge cases (186 assertions, passes on
+  `input` / `kbscan` / `seat` / `backend` + edge cases (188 assertions, passes on
   `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface
