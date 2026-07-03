@@ -329,6 +329,50 @@ fn main() {
     assert_eq(bhumi_seat_poll(seatB, &gprev, &gevs, 1, tnow), 0, "authorized poll -> 0 events on host (gate passed)");
     assert_eq(bhumi_seat_poll(seatA, &gprev, &gevs, 1, tnow), BHUMI_SEAT_DENIED, "background seat poll -> DENIED");
 
+    # ----- seat.cyr — seat manager (exactly one active) ----------
+    test_group("seat.cyr — bhumi_seatmgr");
+    var mgr = bhumi_seatmgr_new();
+    assert_neq(mgr, 0, "mgr allocates");
+    assert_eq(bhumi_seatmgr_count(mgr),  0, "starts empty");
+    assert_eq(bhumi_seatmgr_active(mgr), 0, "no foreground");
+    var s1 = bhumi_seat_new(10);
+    var s2 = bhumi_seat_new(11);
+    var s3 = bhumi_seat_new(12);
+    assert_eq(bhumi_seatmgr_add(mgr, s1), 0, "add s1");
+    assert_eq(bhumi_seatmgr_add(mgr, s2), 0, "add s2");
+    assert_eq(bhumi_seatmgr_count(mgr), 2, "count 2");
+    assert_eq(bhumi_seatmgr_has(mgr, s1), 1, "has s1");
+    assert_eq(bhumi_seatmgr_has(mgr, s3), 0, "s3 not registered");
+
+    # switch to an unregistered seat fails and leaves the foreground unchanged
+    assert_eq(bhumi_seatmgr_switch(mgr, s3), -1, "switch to unregistered -> -1");
+    assert_eq(bhumi_seatmgr_active(mgr), 0, "foreground unchanged");
+
+    assert_eq(bhumi_seatmgr_switch(mgr, s1), 0, "switch to s1");
+    assert_eq(bhumi_seatmgr_active(mgr), s1, "s1 is foreground");
+    assert_eq(bhumi_seat_active(s1), 1, "s1 active");
+    assert_eq(bhumi_seat_active(s2), 0, "s2 background");
+
+    # switching to s2 must auto-deactivate s1 (single-active invariant)
+    assert_eq(bhumi_seatmgr_switch(mgr, s2), 0, "switch to s2");
+    assert_eq(bhumi_seat_active(s1), 0, "s1 auto-deactivated");
+    assert_eq(bhumi_seat_active(s2), 1, "s2 foreground");
+    assert_eq(bhumi_seatmgr_active(mgr), s2, "mgr active = s2");
+
+    bhumi_seatmgr_release(mgr);
+    assert_eq(bhumi_seat_active(s2), 0, "release deactivates s2");
+    assert_eq(bhumi_seatmgr_active(mgr), 0, "no foreground after release");
+
+    # capacity: fills to BHUMI_SEATMGR_MAX, then rejects
+    var mgr2 = bhumi_seatmgr_new();
+    var k = 0;
+    while (k < BHUMI_SEATMGR_MAX) {
+        assert_eq(bhumi_seatmgr_add(mgr2, s1), 0, "add within capacity");
+        k = k + 1;
+    }
+    assert_eq(bhumi_seatmgr_count(mgr2), BHUMI_SEATMGR_MAX, "count == MAX");
+    assert_eq(bhumi_seatmgr_add(mgr2, s1), -1, "add beyond MAX -> -1");
+
     return assert_summary();
 }
 

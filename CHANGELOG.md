@@ -4,16 +4,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-02
+
+**M3 — Seat (capability-gated device access).** The sovereign logind/DRM-master
+replacement: device access is gated on a capability held by the active seat — no
+uids, no logind, no setuid helper. bhumi *enforces* capabilities; sigil issues and
+kavach sandboxes ([ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md)).
+
 ### Added
-- `src/seat.cyr` — the M3 sovereign seat / device-access gate (the logind/DRM-
-  master replacement, no uids). A `BhumiCap` capability (subject, device bitmask,
-  expiry, issuer) and a `BhumiSeat` (id, active, held cap); every device op routes
-  through the gate: `bhumi_seat_present` / `bhumi_seat_poll` succeed only for an
-  **active** seat holding a capability that grants that device and hasn't expired —
-  a background seat is DENIED. `bhumi_seat_handoff` enforces exactly one active
-  seat (VT-switch). bhumi *enforces* capabilities; sigil issues and kavach
-  sandboxes (lean-enforcer trust boundary, [ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md)).
-  +26 tests (143).
+- `src/seat.cyr` — the seat / device-access gate. A `BhumiCap` (subject, device
+  bitmask, expiry, issuer, reserved signature slot) and a `BhumiSeat` (id, active,
+  held cap); every device op routes through the gate — `bhumi_seat_present` /
+  `bhumi_seat_poll` succeed only for an **active** seat holding a capability that
+  grants that device and hasn't expired, else `BHUMI_SEAT_DENIED`. A background
+  seat cannot read keystrokes or touch the framebuffer.
+- `src/seat.cyr` — `BhumiSeatMgr`, a registry over N seats that guarantees
+  **exactly one active seat** across arbitrary hand-offs: `bhumi_seatmgr_switch`
+  deactivates the current foreground before activating the target,
+  `bhumi_seatmgr_release` drops to no-foreground (locked). `bhumi_seat_handoff`
+  remains the pairwise primitive.
+- `programs/seat-demo.cyr` — the M3 acceptance artifact: two seats + capabilities;
+  the trace shows device access following the foreground across switches, with
+  background seats DENIED. Pure/portable (host + agnos).
+- `tests/bhumi.tcyr` — +56 assertions over `seat.cyr` (capability scope/expiry,
+  active-AND-capability gate, hand-off, gated present/poll, seat-manager
+  single-active + capacity); 173 total.
+- `fuzz/bhumi.fcyr` — extended with the seat gate: random switch/release/grant
+  sequences hold at-most-one-active, manager/active consistency, and
+  background-always-denied (200k+ iterations).
 
 **M2 — Input (keyboard).** The compositor's events-in path: drain the USB/xHCI
 HID keyboard via the agnos `kbscan`#42 syscall and normalize it into a key-event

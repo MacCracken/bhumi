@@ -162,3 +162,78 @@ fn bhumi_seat_poll(s, prev, out, max_ev, now): i64 {
     if (bhumi_seat_can(s, BHUMI_DEV_INPUT, now) == 0) { return BHUMI_SEAT_DENIED; }
     return bhumi_input_poll(prev, out, max_ev);
 }
+
+# ================================================================
+# BhumiSeatMgr — a registry that guarantees exactly one active seat
+#
+# bhumi_seat_handoff enforces single-active only for a hand-off PAIR. A manager
+# owns the set of seats and the one foreground pointer, so the single-active
+# invariant holds across arbitrary switches: switching always deactivates the
+# current foreground before activating the target.
+#
+#   +0   count      registered seat count
+#   +8   active     pointer to the foreground seat (0 = none)
+#   +16  seats[N]   array of seat pointers (N = BHUMI_SEATMGR_MAX)
+# ================================================================
+
+enum BhumiSeatMgrLayout {
+    BHUMI_SEATMGR_COUNT  = 0;
+    BHUMI_SEATMGR_ACTIVE = 8;
+    BHUMI_SEATMGR_SEATS  = 16;
+    BHUMI_SEATMGR_MAX    = 8;    # max registered seats
+    BHUMI_SEATMGR_SIZE   = 80;   # 16 + MAX*8
+}
+
+# Create an empty seat manager (no seats, no foreground). Returns the pointer or
+# 0 on OOM.
+fn bhumi_seatmgr_new(): i64 {
+    var m = alloc(BHUMI_SEATMGR_SIZE);
+    if (m == 0) { return 0; }
+    store64(m + BHUMI_SEATMGR_COUNT,  0);
+    store64(m + BHUMI_SEATMGR_ACTIVE, 0);
+    return m;
+}
+
+fn bhumi_seatmgr_count(m): i64  { return load64(m + BHUMI_SEATMGR_COUNT); }
+fn bhumi_seatmgr_active(m): i64 { return load64(m + BHUMI_SEATMGR_ACTIVE); }
+
+# Register a seat (added in the background). Returns 0, or -1 if full.
+fn bhumi_seatmgr_add(m, seat): i64 {
+    var n = load64(m + BHUMI_SEATMGR_COUNT);
+    if (n >= BHUMI_SEATMGR_MAX) { return 0 - 1; }
+    store64((m + BHUMI_SEATMGR_SEATS) + (n * 8), seat);
+    store64(m + BHUMI_SEATMGR_COUNT, n + 1);
+    return 0;
+}
+
+# Is `seat` registered with `m`?
+fn bhumi_seatmgr_has(m, seat): i64 {
+    var n = load64(m + BHUMI_SEATMGR_COUNT);
+    var i = 0;
+    while (i < n) {
+        if (load64((m + BHUMI_SEATMGR_SEATS) + (i * 8)) == seat) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Make `seat` the foreground: deactivate the current foreground (if any), then
+# activate `seat` — so exactly one seat is ever active. Returns 0, or -1 if
+# `seat` is not registered (the foreground is left unchanged).
+fn bhumi_seatmgr_switch(m, seat): i64 {
+    if (bhumi_seatmgr_has(m, seat) == 0) { return 0 - 1; }
+    var cur = load64(m + BHUMI_SEATMGR_ACTIVE);
+    if (cur != 0) { bhumi_seat_deactivate(cur); }
+    bhumi_seat_activate(seat);
+    store64(m + BHUMI_SEATMGR_ACTIVE, seat);
+    return 0;
+}
+
+# Drop the foreground entirely (no seat active — e.g. locked / no session).
+# Returns 0.
+fn bhumi_seatmgr_release(m): i64 {
+    var cur = load64(m + BHUMI_SEATMGR_ACTIVE);
+    if (cur != 0) { bhumi_seat_deactivate(cur); }
+    store64(m + BHUMI_SEATMGR_ACTIVE, 0);
+    return 0;
+}

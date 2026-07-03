@@ -1,0 +1,55 @@
+# seat-demo — the M3 acceptance artifact: device access is capability-gated and
+# follows the foreground seat. Two seats each hold an output+input capability;
+# the trace shows that only the active seat may scan out / read input, and that a
+# hand-off moves that access atomically. Pure logic — no kernel — so it runs and
+# prints the same on host and agnos.
+#
+# Build: cyrius build programs/seat-demo.cyr build/seat-demo   (or --agnos)
+
+include "src/main.cyr"
+
+fn _emit(s): i64 { return print(s, strlen(s)); }
+
+# Print "NAME(out=X in=Y)  " where X/Y are the seat's gate verdicts at `now`.
+fn _emit_seat(name, seat, now): i64 {
+    _emit(name);
+    _emit("(out=");
+    print_num(bhumi_seat_can(seat, BHUMI_DEV_OUTPUT, now));
+    _emit(" in=");
+    print_num(bhumi_seat_can(seat, BHUMI_DEV_INPUT, now));
+    _emit(")  ");
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    var now = 1000;
+
+    var mgr = bhumi_seatmgr_new();
+    var a = bhumi_seat_new(1);
+    var b = bhumi_seat_new(2);
+    var cap = bhumi_cap_new(0, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 0);
+    bhumi_seat_grant(a, cap);
+    bhumi_seat_grant(b, cap);
+    bhumi_seatmgr_add(mgr, a);
+    bhumi_seatmgr_add(mgr, b);
+
+    println("seat-demo: two seats, each holding an output+input capability.");
+    println("           access follows the foreground; background seats are denied.");
+    println("");
+
+    _emit("initial (no foreground): "); _emit_seat("A", a, now); _emit_seat("B", b, now); println("");
+    bhumi_seatmgr_switch(mgr, a);
+    _emit("switch -> A:             "); _emit_seat("A", a, now); _emit_seat("B", b, now); println("");
+    bhumi_seatmgr_switch(mgr, b);
+    _emit("switch -> B:             "); _emit_seat("A", a, now); _emit_seat("B", b, now); println("");
+    bhumi_seatmgr_release(mgr);
+    _emit("release (locked):        "); _emit_seat("A", a, now); _emit_seat("B", b, now); println("");
+
+    println("");
+    println("seat-demo: exactly one seat ever scans out / reads input.");
+    return 0;
+}
+
+var r = main();
+syscall(SYS_EXIT, r);

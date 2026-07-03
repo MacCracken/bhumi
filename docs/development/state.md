@@ -5,8 +5,8 @@
 
 ## Version
 
-**0.3.0** — M2 (input, keyboard) shipped 2026-07-02. M1 (output) 0.2.0;
-scaffolded 2026-06-29 via `cyrius init` (0.1.0).
+**0.4.0** — M3 (seat / capability-gated device access) shipped 2026-07-02.
+M2 (input) 0.3.0; M1 (output) 0.2.0; scaffolded 2026-06-29 (0.1.0).
 
 ## Toolchain
 
@@ -42,24 +42,31 @@ scaffolded 2026-06-29 via `cyrius init` (0.1.0).
 - `programs/input-demo.cyr` — **M2 acceptance artifact.** Polls the keyboard and
   prints each key (down/up + HID usage; Esc quits) on agnos; explanatory pass
   off-agnos.
-- `src/seat.cyr` — **M3 in progress.** Sovereign device-access gate (logind/DRM-
-  master replacement): `BhumiCap` (subject/devices/expiry/issuer) + `BhumiSeat`
-  (id/active/cap). Device ops route through `bhumi_seat_present` / `_poll`, which
-  only pass for an active seat holding a valid capability; `bhumi_seat_handoff`
-  keeps exactly one active. bhumi *enforces* capabilities; sigil issues, kavach
-  sandboxes ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
+- `src/seat.cyr` — **M3.** Sovereign device-access gate (logind/DRM-master
+  replacement): `BhumiCap` (subject/devices/expiry/issuer) + `BhumiSeat`
+  (id/active/cap) + `BhumiSeatMgr` (single-active registry). Device ops route
+  through `bhumi_seat_present` / `_poll`, which only pass for an active seat
+  holding a valid capability; `bhumi_seatmgr_switch` keeps exactly one active.
+  bhumi *enforces* capabilities; sigil issues, kavach sandboxes
+  ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
+- `programs/seat-demo.cyr` — **M3 acceptance artifact.** Traces device access
+  following the foreground across hand-offs; background seats DENIED. Portable.
 
-**M1 (v0.2.0) and M2 (v0.3.0) shipped** — code-complete against the real ABIs and
-verified cross-target (host: 117 assertions + fuzz; agnos: emits `syscall`
-#38/#39 output, #42 input). Visual/interactive acceptance (`scanout-demo`,
-`input-demo` on a real/QEMU agnos target) is a manual downstream step, not
-reachable from host CI. **Pointer input is deferred** — no pointer syscall exists
-(surface tops at 1.51.0), so v0.3.0 input is keyboard-only.
+**M1 (v0.2.0), M2 (v0.3.0), M3 (v0.4.0) shipped** — verified cross-target (host:
+173 assertions + fuzz; agnos: emits `syscall` #38/#39 output, #42 input; the seat
+gate is pure userland). Visual/interactive acceptance (`scanout-demo`,
+`input-demo`, `seat-demo`) is a manual downstream step, not reachable from host
+CI. **Pointer input is deferred** — no pointer syscall exists (surface tops at
+1.51.0), so input is keyboard-only.
+
+Next: **M4 — the assembled `backend.cyr` handle** aethersafha instantiates
+(output + input + seat folded together; removes the `bhumi_scaffold_ok` sentinel;
+first downstream consumer green).
 
 ## Tests
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
-  `input` / `kbscan` / `seat` + edge cases (143 assertions, passes on
+  `input` / `kbscan` / `seat` + edge cases (173 assertions, passes on
   `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface

@@ -64,6 +64,21 @@ fn main(): i64 {
     var hcur[8];
     var hout[256];   # up to 32 events
 
+    # Seat manager + 3 registered seats + two reusable capabilities (all
+    # allocated once; the loop only switches/releases/re-grants — no per-iter alloc).
+    var fzmgr = bhumi_seatmgr_new();
+    var fzs0 = bhumi_seat_new(100);
+    var fzs1 = bhumi_seat_new(101);
+    var fzs2 = bhumi_seat_new(102);
+    bhumi_seatmgr_add(fzmgr, fzs0);
+    bhumi_seatmgr_add(fzmgr, fzs1);
+    bhumi_seatmgr_add(fzmgr, fzs2);
+    var fzcap_all = bhumi_cap_new(0, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 0);
+    var fzcap_out = bhumi_cap_new(0, BHUMI_DEV_OUTPUT, 0, 0);
+    bhumi_seat_grant(fzs0, fzcap_all);
+    bhumi_seat_grant(fzs1, fzcap_all);
+    bhumi_seat_grant(fzs2, fzcap_out);
+
     # Guards are input-independent — check once.
     if (bhumi_output_present(0) != 0 - 1) { return _fz_fail("FAIL: present(null) != -1\n"); }
     if (bhumi_output_query(0)   != 0 - 1) { return _fz_fail("FAIL: query(null) != -1\n"); }
@@ -173,10 +188,44 @@ fn main(): i64 {
         # A report diffed against itself settles to no events.
         if (bhumi_kbd_diff(&hcur, &hcur, &hout, 20) != 0) { return _fz_fail("FAIL: self-diff non-zero\n"); }
 
+        # --- seat gate: random switch/release/grant keeps the invariants ---
+        var sop = _fz_mod(5);
+        if (sop == 0) { bhumi_seatmgr_switch(fzmgr, fzs0); }
+        if (sop == 1) { bhumi_seatmgr_switch(fzmgr, fzs1); }
+        if (sop == 2) { bhumi_seatmgr_switch(fzmgr, fzs2); }
+        if (sop == 3) { bhumi_seatmgr_release(fzmgr); }
+        if (sop == 4) {
+            var whichcap = fzcap_all;
+            if (_fz_mod(2) == 0) { whichcap = fzcap_out; }
+            var whichseat = _fz_mod(3);
+            if (whichseat == 0) { bhumi_seat_grant(fzs0, whichcap); }
+            if (whichseat == 1) { bhumi_seat_grant(fzs1, whichcap); }
+            if (whichseat == 2) { bhumi_seat_grant(fzs2, whichcap); }
+        }
+        # (1) at most one active seat
+        var actn = (bhumi_seat_active(fzs0) + bhumi_seat_active(fzs1)) + bhumi_seat_active(fzs2);
+        if (actn > 1) { return _fz_fail("FAIL: more than one active seat\n"); }
+        # (2) the manager's foreground is exactly the active seat (or none)
+        var mgract = bhumi_seatmgr_active(fzmgr);
+        if (mgract != 0) {
+            if (bhumi_seat_active(mgract) != 1) { return _fz_fail("FAIL: mgr.active not active\n"); }
+            if (actn != 1) { return _fz_fail("FAIL: mgr.active set but active count != 1\n"); }
+        }
+        if (mgract == 0) {
+            if (actn != 0) { return _fz_fail("FAIL: no foreground but a seat is active\n"); }
+        }
+        # (3) a background seat is always denied, whatever capability it holds
+        if (bhumi_seat_active(fzs0) == 0) {
+            if (bhumi_seat_can(fzs0, BHUMI_DEV_OUTPUT, 1000) != 0) { return _fz_fail("FAIL: background seat granted access\n"); }
+        }
+        if (bhumi_seat_active(fzs1) == 0) {
+            if (bhumi_seat_can(fzs1, BHUMI_DEV_INPUT, 1000) != 0) { return _fz_fail("FAIL: background seat granted access\n"); }
+        }
+
         i = i + 1;
     }
 
-    println("fuzz: bhumi output + input surface — all invariants held");
+    println("fuzz: bhumi output + input + seat surface — all invariants held");
     return 0;
 }
 

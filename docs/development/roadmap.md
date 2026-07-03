@@ -59,7 +59,7 @@ the `--agnos` binary emits `syscall` #42), the `input-demo` acceptance artifact,
 and fuzz coverage of the report decoder. Deferred: **pointer input**, once the
 agnos kernel lands a pointer/HID-pointer syscall.
 
-### M3 — Seat: native device-access gate (v0.4.0) — in progress
+### M3 — Seat: native device-access gate (v0.4.0) — ✅ shipped 2026-07-02
 
 `src/seat.cyr` — a sovereign seat/session model (one seat = a focus + its input
 device + its scanout) gated by **sigil/kavach capabilities**, *not* logind /
@@ -72,10 +72,12 @@ a valid capability (active seat + device scope + expiry) and trusts sigil/kavach
 for issuance/verification, carrying a reserved signature slot for a future verify
 hook.
 
-Landed: the seat + capability model and the gate (`bhumi_seat_can`,
-`bhumi_seat_present` / `_poll`, `bhumi_seat_handoff`). Next to close v0.4.0: a
-seat-manager over N seats (single-active invariant), a hand-off demo, fuzz over
-the gate, and the version cut.
+Shipped: the seat + capability model and the gate (`bhumi_seat_can`,
+`bhumi_seat_present` / `_poll`, `bhumi_seat_handoff`), the `BhumiSeatMgr`
+single-active registry, the `seat-demo` acceptance artifact, and fuzz over the
+gate invariants. Deferred: the optional sigil Ed25519 verify hook (the reserved
+`BHUMI_CAP_SIG` slot), if the threat model ever requires bhumi to independently
+authenticate a capability's origin.
 
 ### M4 — Assembled backend (v0.5.0)
 
