@@ -67,3 +67,11 @@ jobs:
         # Property fuzz over the public output surface (fuzz/bhumi.fcyr):
         # framebuffer bounds, pixel packing, pattern + fbinfo invariants.
         run: cyrius fuzz
+
+      - name: API surface (frozen)
+        # The public API is frozen at v0.7.0 (docs/api.md). Regenerate the dist
+        # bundle and assert every public symbol is still present — a removal or
+        # rename is a breaking change and fails here.
+        run: |
+          cyrius distlib
+          sh scripts/api-surface.sh dist/bhumi.cyr

@@ -5,9 +5,9 @@
 
 ## Version
 
-**0.5.1** — optional capability-verify hook + first formal security audit.
-M4 (assembled backend) 0.5.0 completed the four roadmap milestones; M3 0.4.0;
-M2 0.3.0; M1 0.2.0; scaffolded 2026-06-29 (0.1.0).
+**0.7.0** — public API frozen ([`docs/api.md`](../api.md), 70 functions, enforced
+by `scripts/api-surface.sh`). 0.6.0 benchmarks; 0.5.1 verify hook + audit; M4
+(backend) 0.5.0 completed the four milestones; M3 0.4.0; M2 0.3.0; M1 0.2.0.
 
 ## Toolchain
 
@@ -72,11 +72,11 @@ Visual/interactive acceptance (`scanout-demo`, `input-demo`, `seat-demo`,
 **Pointer input is deferred** — no pointer syscall exists (surface tops at
 1.51.0), so input is keyboard-only.
 
-Toward **v1.0** (see [roadmap.md](roadmap.md) criteria): the security-audit pass
-([`docs/audit/2026-07-02-audit.md`](audit/2026-07-02-audit.md)) and the optional
-capability-verify hook (`bhumi_cap_verify`) landed in 0.5.1. Remaining: real
-aethersafha wired as the downstream consumer, a `docs/benchmarks.md`, and a frozen
-public API. Pointer input lands when the kernel exposes a pointer syscall.
+Toward **v1.0** (see [roadmap.md](roadmap.md) criteria): security audit, verify
+hook, benchmarks, and the **frozen public API** have all landed (0.5.1–0.7.0).
+The one remaining criterion is a **real aethersafha** wired as the first live
+downstream consumer (the demos are stand-ins). Pointer input lands when the
+kernel exposes a pointer syscall.
 
 ## Tests
 

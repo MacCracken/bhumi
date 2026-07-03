@@ -4,6 +4,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-02
+
+**Public API frozen.** The 70-function surface is now a stable, documented,
+machine-enforced contract.
+
+### Added
+- `docs/api.md` — the frozen public API reference: 70 functions + semantic
+  constants across output / scanout / pattern / input / kbscan / seat / backend,
+  grouped by module with signatures.
+- `scripts/api-surface.sh` — enforces the frozen surface against `dist/bhumi.cyr`
+  (hardcoded manifest, so a deletion can't silently pass), wired into CI as the
+  "API surface (frozen)" gate. Removing or renaming a public symbol now fails the
+  build. Satisfies the v1.0 API-frozen criterion.
+
+## [0.6.0] — 2026-07-02
+
+### Added
+- `docs/benchmarks.md` — captured microbenchmarks for the hot paths on a
+  Ryzen 7 5800H: `seat_can` gate 9 ns, `fb_set` 13 ns, `kbd_diff` 59 ns,
+  `fb_clear` 975 µs/720p-frame, pattern generators ~20 ms/frame (per-pixel,
+  diagnostic). Satisfies the v1.0 benchmarks criterion.
+- `tests/bhumi.bcyr` — expanded from pattern-only to also benchmark `fb_clear`,
+  `fb_set` (bounds-checked pixel), `kbd_diff` (HID decode), and `seat_can` (the
+  gate), with a noop clock baseline.
+
 ## [0.5.1] — 2026-07-02
 
 ### Added
