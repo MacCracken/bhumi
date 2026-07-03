@@ -373,6 +373,34 @@ fn main() {
     assert_eq(bhumi_seatmgr_count(mgr2), BHUMI_SEATMGR_MAX, "count == MAX");
     assert_eq(bhumi_seatmgr_add(mgr2, s1), -1, "add beyond MAX -> -1");
 
+    # ----- backend.cyr — the assembled handle + gated frame loop --
+    test_group("backend.cyr — bhumi_backend");
+    var bcap = bhumi_cap_new(42, BHUMI_DEV_OUTPUT | BHUMI_DEV_INPUT, 0, 1);
+    var be = bhumi_backend_open(bcap, 64, 48);
+    assert_neq(be, 0, "backend opens");
+    assert_eq(bhumi_backend_width(be),  64, "display width");
+    assert_eq(bhumi_backend_height(be), 48, "display height");
+    assert_neq(bhumi_backend_fb(be), 0, "has a primary framebuffer");
+    assert_eq(bhumi_fb_width(bhumi_backend_fb(be)), 64, "primary fb sized to display");
+    assert_eq(bhumi_seat_active(bhumi_backend_seat(be)), 1, "backend seat is foreground");
+
+    # Foreground backend: frame-loop ops pass the gate (host returns 0 / raw op).
+    var bevs[8];
+    assert_eq(bhumi_backend_poll(be, &bevs, 1, 1000), 0, "poll passes the gate (0 on host)");
+    assert_eq(bhumi_backend_present(be, 1000), bhumi_output_present(bhumi_backend_fb(be)), "present passes the gate (raw op)");
+
+    # VT-switch away: the backgrounded backend is denied at the gate.
+    bhumi_backend_deactivate(be);
+    assert_eq(bhumi_backend_poll(be, &bevs, 1, 1000), BHUMI_SEAT_DENIED, "backgrounded poll -> DENIED");
+    assert_eq(bhumi_backend_present(be, 1000), BHUMI_SEAT_DENIED, "backgrounded present -> DENIED");
+    bhumi_backend_activate(be);
+    assert_eq(bhumi_backend_present(be, 1000), bhumi_output_present(bhumi_backend_fb(be)), "reactivated -> passes again");
+
+    # A backend opened with an output-only capability: can present, cannot poll.
+    var be2 = bhumi_backend_open(bhumi_cap_new(1, BHUMI_DEV_OUTPUT, 0, 1), 32, 16);
+    assert_neq(bhumi_backend_present(be2, 1000), BHUMI_SEAT_DENIED, "output-only backend can present");
+    assert_eq(bhumi_backend_poll(be2, &bevs, 1, 1000), BHUMI_SEAT_DENIED, "output-only backend poll -> DENIED");
+
     return assert_summary();
 }
 

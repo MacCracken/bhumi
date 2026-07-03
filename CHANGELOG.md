@@ -4,6 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `src/backend.cyr` — the M4 assembled backend: the single `BhumiBackend` handle
+  aethersafha instantiates. `bhumi_backend_open(cap, w, h)` folds a primary
+  framebuffer (M1), an input cursor (M2), and an owned foreground seat (M3) into
+  one handle; the frame-loop API — `bhumi_backend_fb` / `_poll` / `_present`,
+  with `_activate` / `_deactivate` for VT-switch — routes every device op through
+  the seat gate, so a backgrounded backend is DENIED. +13 tests (186).
+
+### Removed
+- `bhumi_scaffold_ok` — the M0 scaffold sentinel in `src/main.cyr`, retired now
+  that `src/backend.cyr` provides the real public surface.
+
 ## [0.4.0] — 2026-07-02
 
 **M3 — Seat (capability-gated device access).** The sovereign logind/DRM-master

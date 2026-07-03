@@ -79,7 +79,12 @@ gate invariants. Deferred: the optional sigil Ed25519 verify hook (the reserved
 `BHUMI_CAP_SIG` slot), if the threat model ever requires bhumi to independently
 authenticate a capability's origin.
 
-### M4 — Assembled backend (v0.5.0)
+### M4 — Assembled backend (v0.5.0) — in progress
+
+Landed: `src/backend.cyr` — the `BhumiBackend` handle (`bhumi_backend_open` +
+gated `_fb` / `_poll` / `_present` / `_activate`) folds output + input + seat; the
+`bhumi_scaffold_ok` sentinel is removed. Next to close v0.5.0: a frame-loop demo
+(aethersafha stand-in), fuzz over the backend, and the version cut.
 
 `src/backend.cyr` — fold output + input + seat into the single backend handle
 **aethersafha** instantiates. Acceptance: aethersafha drives a frame loop against

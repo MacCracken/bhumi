@@ -51,22 +51,29 @@ M2 (input) 0.3.0; M1 (output) 0.2.0; scaffolded 2026-06-29 (0.1.0).
   ([ADR 0002](../adr/0002-seat-lean-capability-enforcer.md)).
 - `programs/seat-demo.cyr` — **M3 acceptance artifact.** Traces device access
   following the foreground across hand-offs; background seats DENIED. Portable.
+- `src/backend.cyr` — **M4 in progress.** The assembled `BhumiBackend` handle
+  aethersafha instantiates: `bhumi_backend_open(cap, w, h)` folds a primary
+  framebuffer + input cursor + owned foreground seat; `bhumi_backend_fb` /
+  `_poll` / `_present` / `_activate` / `_deactivate` are the gated frame-loop API.
+  (The M0 `bhumi_scaffold_ok` sentinel is now removed — backend.cyr is the real
+  public surface.)
 
-**M1 (v0.2.0), M2 (v0.3.0), M3 (v0.4.0) shipped** — verified cross-target (host:
-173 assertions + fuzz; agnos: emits `syscall` #38/#39 output, #42 input; the seat
-gate is pure userland). Visual/interactive acceptance (`scanout-demo`,
-`input-demo`, `seat-demo`) is a manual downstream step, not reachable from host
-CI. **Pointer input is deferred** — no pointer syscall exists (surface tops at
-1.51.0), so input is keyboard-only.
+**M1 (v0.2.0), M2 (v0.3.0), M3 (v0.4.0) shipped; M4 in progress** — verified
+cross-target (host: 186 assertions + fuzz; agnos: emits `syscall` #38/#39 output,
+#42 input; the seat gate + backend are pure userland). Visual/interactive
+acceptance (`scanout-demo`, `input-demo`, `seat-demo`) is a manual downstream
+step, not reachable from host CI. **Pointer input is deferred** — no pointer
+syscall exists (surface tops at 1.51.0), so input is keyboard-only.
 
-Next: **M4 — the assembled `backend.cyr` handle** aethersafha instantiates
-(output + input + seat folded together; removes the `bhumi_scaffold_ok` sentinel;
-first downstream consumer green).
+M4 landed the assembled `backend.cyr` handle (folds output + input + seat; the
+`bhumi_scaffold_ok` sentinel is gone). To close v0.5.0: a frame-loop demo
+(aethersafha stand-in), fuzz over the backend, and the version cut — first
+downstream consumer green.
 
 ## Tests
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
-  `input` / `kbscan` / `seat` + edge cases (173 assertions, passes on
+  `input` / `kbscan` / `seat` / `backend` + edge cases (186 assertions, passes on
   `cyrius test`). Source-includes `src/main.cyr` (see
   [architecture 001](../architecture/001-cyrius-test-const-visibility.md)).
 - `fuzz/bhumi.fcyr` — property fuzz over the public output + input surface

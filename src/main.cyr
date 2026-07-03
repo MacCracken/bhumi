@@ -36,8 +36,4 @@ include "src/pattern.cyr"      # bring-up test patterns (color bars, XOR) over a
 include "src/input.cyr"        # events-in: USB HID keyboard report decode
 include "src/kbscan.cyr"       # kernel drain: agnos kbscan#42 -> HID reports (cross-target)
 include "src/seat.cyr"         # sovereign seat: capability-gated device access (sigil/kavach)
-# include "src/backend.cyr"    # assembled platform-backend handle
-
-# Scaffold sentinel — proves the lib header compiles before any module lands.
-# Removed when src/backend.cyr lands the real public surface.
-fn bhumi_scaffold_ok(): i64 { return 1; }
+include "src/backend.cyr"      # the assembled handle aethersafha instantiates (open/poll/present)
