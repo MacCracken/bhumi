@@ -5,9 +5,10 @@
 
 ## Version
 
-**0.7.0** — public API frozen ([`docs/api.md`](../api.md), 70 functions, enforced
-by `scripts/api-surface.sh`). 0.6.0 benchmarks; 0.5.1 verify hook + audit; M4
-(backend) 0.5.0 completed the four milestones; M3 0.4.0; M2 0.3.0; M1 0.2.0.
+**1.0.0** — first stable release; all six v1.0 criteria met (aethersafha 0.1.0
+wired as the first live consumer). 0.7.0 froze the public API; 0.6.0 benchmarks;
+0.5.1 verify hook + audit; M4 (backend) 0.5.0 completed the four milestones;
+M3 0.4.0; M2 0.3.0; M1 0.2.0; scaffold 0.1.0.
 
 ## Toolchain
 
@@ -72,11 +73,11 @@ Visual/interactive acceptance (`scanout-demo`, `input-demo`, `seat-demo`,
 **Pointer input is deferred** — no pointer syscall exists (surface tops at
 1.51.0), so input is keyboard-only.
 
-Toward **v1.0** (see [roadmap.md](roadmap.md) criteria): security audit, verify
-hook, benchmarks, and the **frozen public API** have all landed (0.5.1–0.7.0).
-The one remaining criterion is a **real aethersafha** wired as the first live
-downstream consumer (the demos are stand-ins). Pointer input lands when the
-kernel exposes a pointer syscall.
+**v1.0 reached** — all six criteria met (see [roadmap.md](roadmap.md)): frozen
+API, test coverage, benchmarks, security audit, complete CHANGELOG, and a live
+consumer (aethersafha 0.1.0). Post-1.0 work is request-driven: **pointer input**
+when the kernel exposes a pointer syscall, the optional sigil verify path if the
+threat model requires it, and multi-seat orchestration beyond the single seat.
 
 ## Tests
 
@@ -98,8 +99,10 @@ Direct (declared in `cyrius.cyml`):
 
 ## Consumers
 
-Intended: **aethersafha** (compositor) — instantiates bhumi as its platform
-backend (output/input/seat). Not wired yet (M4 / v0.5.0 acceptance gate).
+**aethersafha 0.1.0** (compositor) — wired: instantiates bhumi as its platform
+backend (output/input/seat) via `bhumi_backend_open` and drives a frame loop
+through the single handle. The first live downstream consumer; closed the last
+v1.0 criterion.
 
 ## Next
 

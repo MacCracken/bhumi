@@ -4,14 +4,12 @@
 > this file is the sequencing — what ships, in what order, against
 > what dependency gates.
 
-## v1.0 criteria
-
-_Define before tagging v0.1.0:_
+## v1.0 criteria — ✅ all met (v1.0.0 shipped 2026-07-02)
 
 - [x] Public API frozen — 70 functions in [`docs/api.md`](../api.md), enforced by [`scripts/api-surface.sh`](../../scripts/api-surface.sh)
 - [x] Test coverage adequate for the surface area — 200 assertions + `bhumi.fcyr` fuzz
 - [x] Benchmarks captured in [`docs/benchmarks.md`](../benchmarks.md)
-- [ ] At least one downstream consumer green — demos are stand-ins; real aethersafha pending (M4 acceptance is by cross-compile + frame-loop demo)
+- [x] At least one downstream consumer green — **aethersafha 0.1.0** wired onto bhumi as its platform backend
 - [x] CHANGELOG complete from v0.1.0 onward
 - [x] Security audit pass — [`docs/audit/2026-07-02-audit.md`](../audit/2026-07-02-audit.md) (0 critical/high)
 

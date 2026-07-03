@@ -4,6 +4,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-02
+
+**First stable release.** All six v1.0 criteria are met — the final one, a live
+downstream consumer, closed by **aethersafha 0.1.0** wiring bhumi in as its
+platform backend. The public API (70 functions, [`docs/api.md`](docs/api.md)) is
+frozen and CI-enforced; a compositor now drives real pixels-out, events-in, and a
+capability-gated seat through bhumi.
+
+The sovereign replacement for the Linux DRM/KMS + libinput + logind backend trio,
+built greenfield from a `cyrius init` scaffold across M1–M4:
+
+- **Output** — `BhumiFb` framebuffer → agnos `fbinfo`#38 / `blit`#39 ([ADR 0001](docs/adr/0001-scanout-via-agnos-fbinfo-blit.md))
+- **Input** — USB HID keyboard → `kbscan`#42 (report-diff decode; no PS/2)
+- **Seat** — capability-gated device access, one active seat, no logind/uids ([ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md))
+- **Backend** — the single `BhumiBackend` handle a compositor drives a frame loop against
+
+Verified: 200 assertions + fuzz (200k iters) + a pre-release adversarial review;
+five programs cross-compile `--agnos`; security audit clean (0 critical/high);
+benchmarks captured. Deferred to future releases: pointer input (awaits a kernel
+pointer syscall) and multi-seat orchestration.
+
+### Changed
+- No API changes since 0.7.0 — 1.0.0 promotes the frozen 0.7.0 surface to stable.
+
 ## [0.7.0] — 2026-07-02
 
 **Public API frozen.** The 70-function surface is now a stable, documented,
