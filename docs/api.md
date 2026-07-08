@@ -40,8 +40,9 @@ All functions return / take `i64`; pointers are `i64` addresses.
 ## Input — drain (`kbscan.cyr`)
 
 - `bhumi_input_init(prev)` — zero the caller's held HID report.
-- `bhumi_input_process(prev, raw, n, out, max_ev)` — decode drained report bytes; count.
-- `bhumi_input_poll(prev, out, max_ev)` — drain (`kbscan`#42 on agnos) + decode; count (`0` off-agnos).
+- `bhumi_input_process(prev, raw, n, out, max_ev)` — decode drained HID reports; count.
+- `bhumi_scancode_process(raw, n, out, max_ev)` — decode drained AT/XT Set-1 scancodes (agnos `kbscan`#42) into the same normalized key events; count. Pure/host-testable.
+- `bhumi_input_poll(prev, out, max_ev)` — drain (`kbscan`#42 on agnos) + decode; count (`0` off-agnos). On agnos it decodes Set-1 scancodes; on the host it decodes HID reports.
 
 ## Seat — capability (`seat.cyr`)
 

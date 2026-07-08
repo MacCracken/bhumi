@@ -12,7 +12,7 @@ set -eu
 DIST="${1:-dist/bhumi.cyr}"
 [ -f "$DIST" ] || { echo "api-surface: $DIST not found — run 'cyrius distlib'"; exit 1; }
 
-# --- 70 public functions ---
+# --- 71 public functions (70 frozen at v0.7.0 + bhumi_scancode_process @ v1.1.0) ---
 FNS="
 bhumi_xrgb bhumi_fb_new bhumi_fb_width bhumi_fb_height bhumi_fb_pitch
 bhumi_fb_format bhumi_fb_bpp bhumi_fb_pixels bhumi_fb_size bhumi_fb_set
@@ -23,7 +23,7 @@ bhumi_output_format_ok bhumi_output_present
 bhumi_bar_color bhumi_bar_index bhumi_pattern_bars bhumi_xor_value
 bhumi_pattern_xor
 bhumi_key_event bhumi_key_pressed bhumi_key_usage bhumi_kbd_diff
-bhumi_input_init bhumi_input_process bhumi_input_poll
+bhumi_input_init bhumi_input_process bhumi_scancode_process bhumi_input_poll
 bhumi_cap_new bhumi_cap_subject bhumi_cap_devices bhumi_cap_expiry
 bhumi_cap_issuer bhumi_cap_grants bhumi_cap_signed_bytes bhumi_cap_set_sig
 bhumi_cap_sig bhumi_cap_verify

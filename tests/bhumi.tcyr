@@ -449,6 +449,52 @@ fn main() {
     assert_eq(bhumi_cap_verify(vcap, 0, &pk), 0, "null verifier -> 0");
     assert_eq(bhumi_cap_verify(0, &_test_ed_verify, &pk), 0, "null cap -> 0");
 
+    # ----- kbscan.cyr — Set-1 scancode decode (the agnos keyboard path) -----
+    test_group("kbscan.cyr — Set-1 scancode decode");
+    var sc[8];
+    var kev[32];   # up to 4 packed events (8 bytes each)
+
+    # Single make: Tab (0x0F) -> pressed, HID usage 0x2B.
+    store8(&sc, 0x0F);
+    assert_eq(bhumi_scancode_process(&sc, 1, &kev, 4), 1, "Tab make -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&kev)), 1, "Tab make is a press");
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x2B, "Tab -> HID usage 0x2B");
+
+    # Break code: Tab release (0x0F | 0x80 = 0x8F) -> release, same usage.
+    store8(&sc, 0x8F);
+    assert_eq(bhumi_scancode_process(&sc, 1, &kev, 4), 1, "Tab break -> 1 event");
+    assert_eq(bhumi_key_pressed(load64(&kev)), 0, "Tab break is a release");
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x2B, "Tab break -> HID usage 0x2B");
+
+    # The keys the compositor acts on: Esc / F4 / F5 / F6.
+    store8(&sc, 0x01); bhumi_scancode_process(&sc, 1, &kev, 4);
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x29, "Esc -> HID 0x29");
+    store8(&sc, 0x3E); bhumi_scancode_process(&sc, 1, &kev, 4);
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x3D, "F4 -> HID 0x3D");
+    store8(&sc, 0x3F); bhumi_scancode_process(&sc, 1, &kev, 4);
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x3E, "F5 -> HID 0x3E");
+    store8(&sc, 0x40); bhumi_scancode_process(&sc, 1, &kev, 4);
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x3F, "F6 -> HID 0x3F");
+
+    # Letter round-trip: 'a' (Set-1 0x1E) -> HID 0x04.
+    store8(&sc, 0x1E); bhumi_scancode_process(&sc, 1, &kev, 4);
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x04, "a -> HID 0x04");
+
+    # Extended key: 0xE0 0x48 (Up arrow) -> HID 0x52, one event.
+    store8(&sc, 0xE0); store8(&sc + 1, 0x48);
+    assert_eq(bhumi_scancode_process(&sc, 2, &kev, 4), 1, "E0 48 (Up) -> 1 event");
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x52, "Up arrow -> HID 0x52");
+
+    # Unmapped code emits nothing.
+    store8(&sc, 0x00);
+    assert_eq(bhumi_scancode_process(&sc, 1, &kev, 4), 0, "unmapped scancode -> 0 events");
+
+    # Two keys in one drain -> two events, in order.
+    store8(&sc, 0x0F); store8(&sc + 1, 0x3E);
+    assert_eq(bhumi_scancode_process(&sc, 2, &kev, 4), 2, "Tab+F4 -> 2 events");
+    assert_eq(bhumi_key_usage(load64(&kev)), 0x2B, "first event is Tab");
+    assert_eq(bhumi_key_usage(load64(&kev + 8)), 0x3D, "second event is F4");
+
     return assert_summary();
 }
 

@@ -4,6 +4,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-07-08
+
+Keyboard input now works on agnos. First backward-compatible feature release
+since the 1.0 API freeze (one added public function; the 70 frozen symbols are
+untouched).
+
+### Fixed
+
+- **agnos keyboard input.** `bhumi_input_poll` decoded 8-byte USB **HID reports**
+  on every target, but agnos `kbscan`#42 delivers raw AT/XT **Set-1 scancodes**
+  (the same pipe cyrius-doom's `input_poll` drains). So keyboard input through
+  bhumi never produced correct events on agnos. `bhumi_input_poll` now branches by
+  target: agnos → Set-1 decode; host → the HID-report path (a no-op — no
+  keyboard). The host HID decode (`bhumi_input_process`) is unchanged.
+
+### Added
+
+- **`bhumi_scancode_process(raw, n, out, max_ev)`** (`src/kbscan.cyr`) — a pure,
+  host-testable AT/XT **Set-1 scancode** decoder: make/break (bit 7) +
+  `0xE0`-extended → the same normalized HID-usage key events
+  (`bhumi_key_event`) the compositor already consumes. Tables derived from the
+  AT/XT Set-1 layout + the USB HID Usage Table (Keyboard/Keypad page `0x07`);
+  covers the main block, the function row (F1–F12), and common extended keys
+  (arrows / nav / RCtrl / RAlt). The Set-1 counterpart to `bhumi_input_process`.
+- New **"Set-1 scancode decode"** test group (Tab/Esc/F4–F6, a letter, a `0xE0`
+  arrow, multi-key, break codes) — suite **217/217**.
+
+### Validated
+
+- On real agnos (QEMU + KVM + `qemu-xhci`/`usb-kbd`): a `sendkey tab` produced
+  HID usage `0x2B` in the aethersafha compositor loop and drove its focus — the
+  full chain (usb-kbd → xHCI → `hid_poll` → `kb_buf` → `kbscan`#42 → Set-1
+  decode → HID usage → `input_map`). Multi-key delivery reliability under a
+  ring-3 render loop is a separate agnos-kernel concern (xHCI-HID service), not
+  bhumi's.
+
 ## [1.0.0] — 2026-07-02
 
 **First stable release.** All six v1.0 criteria are met — the final one, a live
