@@ -2,6 +2,13 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] - 2026-07-23
+
+### Changed — cyrius pin 6.3.34 → 6.4.71
+
+Toolchain refresh across the draw stack. Materialised `lib/` re-synced (`cyrius lib sync --full`).
+No source change; build + tests green at the new pin.
+
 ## [Unreleased]
 
 ## [1.1.0] — 2026-07-08
