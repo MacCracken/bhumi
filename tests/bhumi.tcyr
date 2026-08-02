@@ -145,6 +145,17 @@ fn main() {
     assert_eq(bhumi_output_present(sfb),  -1, "present -1 on non-agnos host (no framebuffer)");
     assert_eq(bhumi_output_query(&info),  -1, "query -1 on non-agnos host (no framebuffer)");
 
+    # ⛔ THE agnos RETURN CONVENTION — the half of the 2026-08-02 iron bug a host CAN test.
+    # `#38 fbinfo` fills the struct and returns **0**, not the 24 this module's doc promises, and
+    # bhumi used to pass that 0 straight out. Every consumer tests `== BHUMI_FBINFO_SIZE`, so a
+    # successful query read as a failure and aethersafha fell back to a hardcoded 1280x720 on an
+    # 800x600 panel — for the entire life of the fix that existed to prevent exactly that.
+    # ⚠ Untestable through bhumi_output_query itself off agnos (the host arm returns -1 either way),
+    # which is precisely why the mapping is factored out where it can be asserted directly.
+    assert_eq(_bhumi_fbinfo_rc(0),  BHUMI_FBINFO_SIZE, "kernel 0-ok maps to the documented 24");
+    assert_eq(_bhumi_fbinfo_rc(24), BHUMI_FBINFO_SIZE, "an already-24 return stays 24");
+    assert_eq(_bhumi_fbinfo_rc(0 - 1), -1, "kernel -1 stays a failure");
+
     # ----- edge cases ---------------------------------------------
     test_group("edge cases");
     # 1x1 framebuffer — the smallest valid surface.

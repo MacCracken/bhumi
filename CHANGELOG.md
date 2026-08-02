@@ -2,6 +2,40 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.3] - 2026-08-02
+
+### Fixed — ⛔ `bhumi_output_query` RETURNED THE KERNEL'S 0 WHILE PROMISING 24, so every agnos caller read success as failure
+
+agnos `#38 fbinfo` fills the 24-byte geometry struct and returns **0** — the display band's usual
+0-ok convention (`agnos kernel/core/syscall.cyr`). This function's own doc comment has always said
+*"Returns bytes written (24) on success"*, and its agnos arm was `return _bhumi_kfbinfo(info);` —
+the kernel's 0, straight through.
+
+⛔ **Every consumer in the ecosystem tests `== BHUMI_FBINFO_SIZE`**, so on agnos every one of them
+treated a perfectly good answer as "no framebuffer": `aethersafha`'s `ae_query_geometry` fell back
+to its hardcoded **1280x720** on a panel whose scanout is **800x600**, and `programs/scanout-demo`
+and `programs/backend-demo` would never have printed geometry on agnos either.
+
+⚠ **The consequence was silent and it defeated a fix written specifically to prevent it.**
+aethersafha 0.10.0 shipped "THE COMPOSITOR WAS SIZED 1.6x WRONG FOR THE PANEL", whose entire point
+was to stop assuming 1280x720 and *ask* — and the asking never worked on hardware. `#39 blit` clips
+rather than errors, so a 1280x720 desktop on an 800x600 surface just shows its top-left corner with
+nothing logged.
+
+⚠ **Invisible off agnos, which is why it survived every test.** On a host `_bhumi_kfbinfo` returns
+-1, which is *also* `!= 24`, so the fallback is correct there and the suite agrees. Only the agnos
+arm was wrong, and only an iron burn could show it: the 2026-08-02 archaemenid boot printed
+`gpu: console geometry matched to surface 800x600` and then, four lines later, the compositor
+printing `1280` / `720`.
+
+**Fix:** the translation moves into the portable half via a new pure `_bhumi_fbinfo_rc(rc)` —
+negative stays -1, anything else becomes `BHUMI_FBINFO_SIZE`. One place knows the kernel's
+convention, and callers get the contract that was always documented.
+
+⭐ **`_bhumi_fbinfo_rc` is deliberately free of `#ifdef` so the host can assert it** (3 new cases,
+220 tests total). The bug's whole shape was "the only wrong arm is the one no test machine runs", so
+the mapping is now factored to exactly where a test can reach it.
+
 ## [1.1.1] - 2026-07-23
 
 ### Changed — cyrius pin 6.3.34 → 6.4.71
