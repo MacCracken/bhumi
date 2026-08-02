@@ -11,6 +11,32 @@ No source change; build + tests green at the new pin.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-02
+
+### Changed — cyrius pin 6.4.71 -> 6.5.5
+
+Toolchain catch-up across the whole desktop stack, cut together so the next burn runs binaries built
+by ONE compiler rather than 6 different ones.
+
+⚠ **The pin was documentation, not enforcement.** `cyrius build` compiles with the INSTALLED `cycc`,
+prints a `toolchain drift` warning, and carries on — so this project was already being built by 6.5.5
+before this bump. Verify provenance with `~/.cyrius/versions/<pin>/bin/cyrius` when it matters.
+
+⭐ What the gap actually contained, for a reader deciding whether to care:
+- **6.5.1** made overload-suffix arity a hard **error** where it used to warn. Latent arity
+  mismatches are now build failures instead of silently-wrong code — good, and the reason this
+  sweep surfaced real defects elsewhere in the stack.
+- **6.4.75** fixed `fn_table` growth past 8192 silently corrupting six fn-indexed side tables.
+- **6.5.0** added file-scoped `private` / per-item `public` — the first real answer to this
+  ecosystem's duplicate-`fn`-silently-shadows hazard.
+- **6.4.82** completed the agnos GPU syscall wrapper band to `#82`-`#95`, so `sys_gpu_shader_op`
+  (#92) and `sys_gpu_modeset_op` (#93) no longer need a raw `syscall()` behind an `#ifdef`.
+
+### Verification
+
+Host + `--agnos` builds green; 1 suite passes; `distlib` regenerated.
+
+
 ## [1.1.0] — 2026-07-08
 
 Keyboard input now works on agnos. First backward-compatible feature release
