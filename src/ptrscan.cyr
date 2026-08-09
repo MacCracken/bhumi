@@ -1,0 +1,101 @@
+# --- ptrscan.cyr ---
+#
+# @public — bhumi pointer drain: the kernel handoff (agnos `ptrscan #98`).
+#
+# The pointer counterpart to kbscan.cyr, and deliberately NOT an extension of it. The kernel hands back
+# **one merged sample**, not a stream of reports: pointer motion is a RELATIVE DELTA, so the useful unit
+# is the sum since you last asked. agnos folds every HID report into an accumulator
+# (`hid_process_mouse_report`) and `ptrscan` returns the fold.
+#
+# ⛔⛔ THIS MUST NEVER SHARE THE SCANCODE PIPE, at either end. A one-pixel-right motion is `dX = 0x01`,
+# and 0x01 through `_bhumi_set1_to_hid` is HID 0x29 = **Escape** — which aethersafha maps to QUIT. If
+# pointer bytes rode `kbscan #42`'s ring, moving the mouse would close the desktop, and that same ring
+# feeds cyrius-doom's `input_poll`. Separate syscall, separate ring, separate decode.
+#
+# ⚠ Why the kernel merges rather than streaming: all 16 armed TRBs on the endpoint share one report
+# buffer, so a coalescing gap keeps only the LAST report. That is harmless for a keyboard (a report is
+# idempotent state) and wrong for a mouse — applying the surviving delta N times amplifies motion ~2-3x.
+# Streaming raw reports to userland would have moved that hazard here instead of fixing it.
+#
+# Flat domain module: no stdlib includes (see src/main.cyr). Depends on input.cyr for the event
+# encoding, which precedes it in the include chain and the [lib].modules bundle order.
+
+# The kernel record is fixed at 16 bytes — see agnos `docs/development/agnos-userland-abi.md` #98:
+#   +0  s32 dx   +4  s32 dy (POSITIVE = DOWN)   +8  u32 buttons   +12 u32 buttons_seen
+var BHUMI_PTR_RECORD = 16;
+
+# ================================================================
+# Kernel seam — the ONLY target-specific code. Exactly one branch compiles.
+# ================================================================
+
+#ifdef CYRIUS_TARGET_AGNOS
+fn _bhumi_ptrscan(buf, max): i64 { return sys_ptrscan(buf, max); }
+#endif
+#ifndef CYRIUS_TARGET_AGNOS
+# ⚠ INERT OFF-TARGET, and that is a real hazard rather than a convenience: a target-arm contract bug is
+# INVISIBLE here, because this arm answers "no pointer" and every assertion about the agnos arm passes
+# vacuously. The host dev build simply has no pointer; wayland would be a separate backend, not this.
+fn _bhumi_ptrscan(buf, max): i64 { return 0; }
+#endif
+
+# ================================================================
+# Record decode — pure, host-testable, no syscall.
+# ================================================================
+
+# Sign-extend a 32-bit field read out of the kernel record. ⚠ Cyrius has no sized ints, and `load32`
+# yields an unsigned 32-bit value, so a leftward motion (dx = -1) arrives as 4294967295 and would be
+# packed as a huge positive delta if this step were skipped.
+fn bhumi__s32_of(u): i64 {
+    var v = u & 0xFFFFFFFF;
+    if (v > 2147483647) { return v - 4294967296; }
+    return v;
+}
+
+# Turn one 16-byte kernel record into events at `out`, up to `max_ev`. Returns the count written.
+#
+# ⚠ ZERO-SUPPRESSED, both kinds. A frame with no motion emits no MOTION event and a frame with no button
+# change emits no BUTTON event, so an idle pointer costs the consumer nothing — the batch it shares with
+# the keyboard stays short. A consumer must therefore treat "no motion event" as "did not move", never
+# as "did not poll".
+fn bhumi_ptr_decode(rec, out, max_ev): i64 {
+    var w = 0;
+    if (rec == 0) { return 0; }
+    var dx = bhumi__s32_of(load32(rec + 0));
+    var dy = bhumi__s32_of(load32(rec + 4));
+    var btn = load32(rec + 8) & 0xFF;
+    var seen = load32(rec + 12) & 0xFF;
+    if (w < max_ev) {
+        var moved = 0;
+        if (dx != 0) { moved = 1; }
+        if (dy != 0) { moved = 1; }
+        if (moved == 1) {
+            store64(out + (w * 8), bhumi_motion_event(dx, dy));
+            w = w + 1;
+        }
+    }
+    if (w < max_ev) {
+        var pressed = 0;
+        if (btn != 0) { pressed = 1; }
+        if (seen != 0) { pressed = 1; }
+        if (pressed == 1) {
+            store64(out + (w * 8), bhumi_button_event(btn, seen));
+            w = w + 1;
+        }
+    }
+    return w;
+}
+
+# ================================================================
+# The drain — one syscall, then decode.
+# ================================================================
+
+# bhumi_pointer_poll(out, max_ev): append pointer events to `out`. Returns the count written (0 when the
+# pointer is idle or absent). ⚠ The caller passes the REMAINING budget (`max_ev - w`), the same
+# shared-budget convention kbscan.cyr uses, so keys and pointer events cannot overrun one array.
+fn bhumi_pointer_poll(out, max_ev): i64 {
+    if (max_ev <= 0) { return 0; }
+    var rec[2];                       # function-local: 2 * 8 = 16 bytes, exactly one record
+    var n = _bhumi_ptrscan(&rec, BHUMI_PTR_RECORD);
+    if (n < BHUMI_PTR_RECORD) { return 0; }   # 0 = idle, -1 = refused; neither yields an event
+    return bhumi_ptr_decode(&rec, out, max_ev);
+}

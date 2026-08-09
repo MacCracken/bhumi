@@ -2,6 +2,51 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — the POINTER seam: `ptrscan #98`, a kind-tagged event, and a capability gate
+
+### Added — `src/ptrscan.cyr`, the pointer counterpart to `kbscan.cyr`
+
+⭐ **One merged sample, not a stream.** agnos `ptrscan #98` returns a 16-byte record — `s32 dx`, `s32 dy`
+(**positive = DOWN**), `u32 buttons` (current level), `u32 buttons_seen` (OR since the last drain) — and
+`bhumi_pointer_poll` decodes it into events. Pointer motion is a RELATIVE DELTA, so the useful unit is
+the sum since you last asked; the kernel folds every HID report and this reads the fold. Streaming raw
+reports would have moved the coalescing hazard into userland instead of fixing it. ⚠ `buttons_seen` is
+what lets a click that starts *and finishes* inside one frame survive.
+
+⛔ **It must never share the scancode pipe, at either end.** A one-pixel-right motion is `dX = 0x01`, and
+`0x01` through `_bhumi_set1_to_hid` is HID `0x29` = **Escape**, which aethersafha maps to quit — so
+pointer bytes on `kbscan #42`'s ring would mean *moving the mouse closes the desktop*, and that ring also
+feeds cyrius-doom. Separate syscall, separate ring, separate decode.
+
+### Added — an event KIND tag, with KEY as kind 0
+
+⛔ **The batch is now MIXED, and an untagged pointer event reads as a keystroke.** `bhumi_key_usage` is
+`ev & 0xFF`, so a vertical motion of 41 is HID `0x29` — the same Escape, one layer up. Kind lives in bits
+56-59 and **KEY is 0**, chosen so every event this library has ever produced is **bit-for-bit unchanged**
+and no existing producer needed an edit (asserted directly: `bhumi_key_event(1, 0x29) == 0x129`).
+`BHUMI_EV_MOTION` carries dx/dy as **signed 24-bit** fields — Cyrius has no sized ints, so the sign is
+masked in and extended out by hand; without that, `dx = -1` becomes `+16777215` and the cursor teleports
+right instead of moving one pixel left.
+
+### Added — `BHUMI_DEV_POINTER = 4` is activated, and the drain is gated on it
+
+⭐ **Pointer events are opt-in, structurally.** Every capability minted anywhere in this tree today is
+`OUTPUT|INPUT` = 3, so a consumer that has not asked for `BHUMI_DEV_POINTER` receives exactly what it
+received before. The **gate**, not consumer discipline, is what makes a mixed batch safe to ship.
+⚠ Pointer events ride the SAME batch as keys — a second poll would double the syscall count per frame and
+let the streams desynchronise, so a click could be delivered against a different frame than the motion
+that positioned it. `max_ev - w` is the shared budget `kbscan.cyr` already uses.
+
+### Changed — cyrius pin 6.5.5 → **6.5.13**
+
+`sys_ptrscan` / `SYS_PTRSCAN` land there. ⚠ `src/ptrscan.cyr` is also added to `[lib].modules`: that list
+is what `cyrius distlib` concatenates for consumers, so omitting it would have shipped a materialized
+`lib/bhumi.cyr` with no pointer code and no error.
+
+**Tests** 220 → **247 asserts**, mutation-verified in both directions: dropping the s24 sign extension
+fails 6 (including `dx = -1` reading as 16777215), and collapsing the kind tag fails 4 — among them the
+line that exists for exactly this, *"dy=41 is tagged MOTION, not read as HID 0x29 (Escape)"*.
+
 ## [1.1.3] - 2026-08-02
 
 ### Fixed — ⛔ `bhumi_output_query` RETURNED THE KERNEL'S 0 WHILE PROMISING 24, so every agnos caller read success as failure
@@ -36,15 +81,6 @@ convention, and callers get the contract that was always documented.
 220 tests total). The bug's whole shape was "the only wrong arm is the one no test machine runs", so
 the mapping is now factored to exactly where a test can reach it.
 
-## [1.1.1] - 2026-07-23
-
-### Changed — cyrius pin 6.3.34 → 6.4.71
-
-Toolchain refresh across the draw stack. Materialised `lib/` re-synced (`cyrius lib sync --full`).
-No source change; build + tests green at the new pin.
-
-## [Unreleased]
-
 ## [1.1.2] - 2026-08-02
 
 ### Changed — cyrius pin 6.4.71 -> 6.5.5
@@ -70,6 +106,12 @@ before this bump. Verify provenance with `~/.cyrius/versions/<pin>/bin/cyrius` w
 
 Host + `--agnos` builds green; 1 suite passes; `distlib` regenerated.
 
+## [1.1.1] - 2026-07-23
+
+### Changed — cyrius pin 6.3.34 → 6.4.71
+
+Toolchain refresh across the draw stack. Materialised `lib/` re-synced (`cyrius lib sync --full`).
+No source change; build + tests green at the new pin.
 
 ## [1.1.0] — 2026-07-08
 

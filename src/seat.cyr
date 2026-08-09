@@ -28,7 +28,10 @@
 enum BhumiDevice {
     BHUMI_DEV_OUTPUT = 1;   # scanout / framebuffer (M1)
     BHUMI_DEV_INPUT  = 2;   # keyboard (M2)
-    # BHUMI_DEV_POINTER = 4 — reserved until the kernel lands a pointer syscall
+    # ⭐ ACTIVATED 2026-08-08 — agnos 1.56.42 landed `ptrscan #98`. Kept as a SEPARATE bit rather than
+    # folded into INPUT on purpose: every capability minted in this tree today is OUTPUT|INPUT = 3, so a
+    # consumer that has not opted in cannot be handed a pointer event it would misread as a keystroke.
+    BHUMI_DEV_POINTER = 4;  # relative pointer (agnos ptrscan#98)
 }
 
 # Gate verdict for the gated device ops. Distinct from the device ops' own
@@ -205,7 +208,21 @@ fn bhumi_seat_present(s, fb, now): i64 {
 # count (>= 0), or BHUMI_SEAT_DENIED if the seat may not read input.
 fn bhumi_seat_poll(s, prev, out, max_ev, now): i64 {
     if (bhumi_seat_can(s, BHUMI_DEV_INPUT, now) == 0) { return BHUMI_SEAT_DENIED; }
-    return bhumi_input_poll(prev, out, max_ev);
+    var w = bhumi_input_poll(prev, out, max_ev);
+    if (w < 0) { return w; }
+    # ⭐ POINTER EVENTS RIDE THE SAME BATCH, and that is deliberate: a second poll would double the
+    # syscall count per frame and let the two streams desynchronise, so a click could be delivered
+    # against a different frame than the motion that positioned it.
+    # ⚠ SEPARATELY GATED. Every capability minted in this tree today is OUTPUT|INPUT = 3, so a consumer
+    # that has not opted into BHUMI_DEV_POINTER gets exactly what it got before. That matters because an
+    # unchecked pointer event read as a key is `ev & 0xFF` — and a dY of 41 is HID 0x29 = Escape, which
+    # aethersafha maps to QUIT. The gate, not consumer discipline, is what makes this safe to ship.
+    # ⚠ `max_ev - w` is the shared-budget convention kbscan already uses: the two producers cannot
+    # between them overrun one array.
+    if (bhumi_seat_can(s, BHUMI_DEV_POINTER, now) == 1) {
+        w = w + bhumi_pointer_poll(out + (w * 8), max_ev - w);
+    }
+    return w;
 }
 
 # ================================================================

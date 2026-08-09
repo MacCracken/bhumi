@@ -506,6 +506,68 @@ fn main() {
     assert_eq(bhumi_key_usage(load64(&kev)), 0x2B, "first event is Tab");
     assert_eq(bhumi_key_usage(load64(&kev + 8)), 0x3D, "second event is F4");
 
+    # ================================================================
+    # ptrscan.cyr — the pointer seam
+    # ================================================================
+    # ⛔ THE KIND TAG IS THE SAFETY PROPERTY, so it is asserted first and hardest. A pointer event that
+    # reads as a key is not a cosmetic bug: `bhumi_key_usage` is `ev & 0xFF`, and a vertical motion of 41
+    # is HID 0x29 = Escape, which aethersafha maps to QUIT. An untagged pointer event would close the
+    # desktop on downward mouse movement.
+    test_group("ptrscan.cyr — event kind keeps pointer events out of the key path");
+    assert_eq(bhumi_ev_kind(bhumi_key_event(1, 0x29)), BhumiEvKind.BHUMI_EV_KEY, "a key event is kind 0");
+    assert_eq(bhumi_ev_is_key(bhumi_key_event(1, 0x04)), 1, "is_key accepts a key");
+    # ⭐ THE REGRESSION GUARD FOR THE WHOLE SCHEME: kind 0 means every legacy event is bit-for-bit
+    # unchanged, so no existing producer or consumer had to be touched. If this ever fails, the tag moved
+    # and every key event in the tree changed value.
+    assert_eq(bhumi_key_event(1, 0x29), 0x129, "a key event is UNCHANGED by the tagging scheme");
+    assert_eq(bhumi_ev_is_key(bhumi_motion_event(3, 4)), 0, "a motion event is NOT a key");
+    assert_eq(bhumi_ev_is_key(bhumi_button_event(1, 1)), 0, "a button event is NOT a key");
+    # The exact value that would quit the compositor if the tag were missing.
+    assert_eq(bhumi_ev_kind(bhumi_motion_event(0, 41)), BhumiEvKind.BHUMI_EV_MOTION,
+              "dy=41 is tagged MOTION, not read as HID 0x29 (Escape)");
+
+    test_group("ptrscan.cyr — signed motion survives the pack/unpack round trip");
+    assert_eq(bhumi_motion_dx(bhumi_motion_event(7, 9)), 7, "dx positive");
+    assert_eq(bhumi_motion_dy(bhumi_motion_event(7, 9)), 9, "dy positive");
+    # ⛔ NEGATIVE MOTION IS THE CASE A NAIVE PACK LOSES — left and up are the common directions, and a
+    # mask-without-sign-extend turns dx = -1 into +16777215, i.e. the cursor teleports right instead of
+    # moving left by one pixel.
+    assert_eq(bhumi_motion_dx(bhumi_motion_event(0 - 1, 0)), 0 - 1, "dx = -1 (LEFT) survives");
+    assert_eq(bhumi_motion_dy(bhumi_motion_event(0, 0 - 1)), 0 - 1, "dy = -1 (UP) survives");
+    assert_eq(bhumi_motion_dx(bhumi_motion_event(0 - 500, 300)), 0 - 500, "large negative dx");
+    assert_eq(bhumi_motion_dy(bhumi_motion_event(0 - 500, 300)), 300, "...and dy is independent of it");
+    assert_eq(bhumi_motion_dy(bhumi_motion_event(0 - 7, 0 - 9)), 0 - 9, "both negative at once");
+    # The 24-bit boundaries, so an off-by-one in the sign test fails.
+    assert_eq(bhumi_motion_dx(bhumi_motion_event(8388607, 0)), 8388607, "largest positive s24");
+    assert_eq(bhumi_motion_dx(bhumi_motion_event(0 - 8388608, 0)), 0 - 8388608, "most negative s24");
+
+    test_group("ptrscan.cyr — buttons carry level AND the click that happened inside the gap");
+    assert_eq(bhumi_button_state(bhumi_button_event(1, 3)), 1, "current level");
+    assert_eq(bhumi_button_seen(bhumi_button_event(1, 3)), 3, "OR-accumulated since the drain");
+    # ⭐ THE CASE `seen` EXISTS FOR: press and release both land inside one frame, so the level reads 0
+    # and a consumer watching only the level never sees the click at all.
+    assert_eq(bhumi_button_state(bhumi_button_event(0, 1)), 0, "click completed: level is 0");
+    assert_eq(bhumi_button_seen(bhumi_button_event(0, 1)), 1, "...but seen still reports it");
+
+    test_group("ptrscan.cyr — record decode is zero-suppressed");
+    var prec[2];                       # 16 bytes: the kernel record
+    var ptev[4];
+    store32(&prec + 0, 5); store32(&prec + 4, 0 - 3 & 0xFFFFFFFF);
+    store32(&prec + 8, 0); store32(&prec + 12, 0);
+    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 1, "motion only -> one event");
+    assert_eq(bhumi_motion_dx(load64(&ptev)), 5, "decoded dx");
+    assert_eq(bhumi_motion_dy(load64(&ptev)), 0 - 3, "decoded dy is NEGATIVE (up)");
+    store32(&prec + 8, 1); store32(&prec + 12, 1);
+    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 2, "motion + button -> two events");
+    assert_eq(bhumi_ev_kind(load64(&ptev + 8)), BhumiEvKind.BHUMI_EV_BUTTON, "second event is the button");
+    store32(&prec + 0, 0); store32(&prec + 4, 0);
+    store32(&prec + 8, 0); store32(&prec + 12, 0);
+    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 0, "a wholly idle record emits NOTHING");
+    # ⚠ The shared budget: a decode must never write past what the caller allowed.
+    store32(&prec + 0, 5); store32(&prec + 8, 1);
+    assert_eq(bhumi_ptr_decode(&prec, &ptev, 1), 1, "max_ev=1 caps the write at one event");
+    assert_eq(bhumi_ptr_decode(&prec, &ptev, 0), 0, "max_ev=0 writes nothing");
+
     return assert_summary();
 }
 

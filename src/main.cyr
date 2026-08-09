@@ -35,5 +35,6 @@ include "src/scanout.cyr"      # kernel handoff: agnos fbinfo#38 / blit#39 (cros
 include "src/pattern.cyr"      # bring-up test patterns (color bars, XOR) over a BhumiFb
 include "src/input.cyr"        # events-in: USB HID keyboard report decode
 include "src/kbscan.cyr"       # kernel drain: agnos kbscan#42 -> HID reports (cross-target)
+include "src/ptrscan.cyr"      # kernel drain: agnos ptrscan#98 -> merged pointer sample
 include "src/seat.cyr"         # sovereign seat: capability-gated device access (sigil/kavach)
 include "src/backend.cyr"      # the assembled handle aethersafha instantiates (open/poll/present)
