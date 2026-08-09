@@ -94,7 +94,9 @@ fn bhumi_ptr_decode(rec, out, max_ev): i64 {
 # shared-budget convention kbscan.cyr uses, so keys and pointer events cannot overrun one array.
 fn bhumi_pointer_poll(out, max_ev): i64 {
     if (max_ev <= 0) { return 0; }
-    var rec[2];                       # function-local: 2 * 8 = 16 bytes, exactly one record
+    # ⛔⛔ 16, NOT 2. FUNCTION-LOCAL `var X[N]` IS N **BYTES** in Cyrius; only MODULE-SCOPE arrays are
+    # N*8. This was `var rec[2]` — a 2-byte buffer handed to a syscall that writes 16.
+    var rec[16];                      # 16 BYTES — exactly one ptrscan record
     var n = _bhumi_ptrscan(&rec, BHUMI_PTR_RECORD);
     if (n < BHUMI_PTR_RECORD) { return 0; }   # 0 = idle, -1 = refused; neither yields an event
     return bhumi_ptr_decode(&rec, out, max_ev);

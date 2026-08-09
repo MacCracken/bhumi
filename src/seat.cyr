@@ -215,8 +215,9 @@ fn bhumi_seat_poll(s, prev, out, max_ev, now): i64 {
     # against a different frame than the motion that positioned it.
     # ⚠ SEPARATELY GATED. Every capability minted in this tree today is OUTPUT|INPUT = 3, so a consumer
     # that has not opted into BHUMI_DEV_POINTER gets exactly what it got before. That matters because an
-    # unchecked pointer event read as a key is `ev & 0xFF` — and a dY of 41 is HID 0x29 = Escape, which
-    # aethersafha maps to QUIT. The gate, not consumer discipline, is what makes this safe to ship.
+    # unchecked pointer event read as a key takes the LOW BYTE of dx as a usage and BIT 8 of dx as the
+    # pressed flag — so dx = 297 (0x129) is a pressed Escape, which aethersafha maps to QUIT. The gate,
+    # not consumer discipline, is what makes this safe to ship.
     # ⚠ `max_ev - w` is the shared-budget convention kbscan already uses: the two producers cannot
     # between them overrun one array.
     if (bhumi_seat_can(s, BHUMI_DEV_POINTER, now) == 1) {

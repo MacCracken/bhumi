@@ -2,7 +2,7 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — the POINTER seam: `ptrscan #98`, a kind-tagged event, and a capability gate
+## [1.1.4] - 2026-08-08 — the POINTER seam: `ptrscan #98`, a kind-tagged event, and a capability gate
 
 ### Added — `src/ptrscan.cyr`, the pointer counterpart to `kbscan.cyr`
 
@@ -21,7 +21,9 @@ feeds cyrius-doom. Separate syscall, separate ring, separate decode.
 ### Added — an event KIND tag, with KEY as kind 0
 
 ⛔ **The batch is now MIXED, and an untagged pointer event reads as a keystroke.** `bhumi_key_usage` is
-`ev & 0xFF`, so a vertical motion of 41 is HID `0x29` — the same Escape, one layer up. Kind lives in bits
+the low byte of dx, and `bhumi_key_pressed` is bit 8 of dx — so a horizontal motion of **297 px**
+(`0x129`) is a *pressed* Escape, the same quit, one layer up. ⚠ Derived rather than assumed: a first test
+used dy=41 and passed with the guard removed, because dy lives in bits 24-47 and cannot reach bit 8. Kind lives in bits
 56-59 and **KEY is 0**, chosen so every event this library has ever produced is **bit-for-bit unchanged**
 and no existing producer needed an edit (asserted directly: `bhumi_key_event(1, 0x29) == 0x129`).
 `BHUMI_EV_MOTION` carries dx/dy as **signed 24-bit** fields — Cyrius has no sized ints, so the sign is
@@ -36,6 +38,22 @@ received before. The **gate**, not consumer discipline, is what makes a mixed ba
 ⚠ Pointer events ride the SAME batch as keys — a second poll would double the syscall count per frame and
 let the streams desynchronise, so a click could be delivered against a different frame than the motion
 that positioned it. `max_ev - w` is the shared budget `kbscan.cyr` already uses.
+
+### ⚠ A sizing trap this release had to survive, recorded because it will recur
+
+`bhumi_pointer_poll`'s kernel record buffer is `var rec[16]` — **16 BYTES**. It was briefly `var rec[2]`,
+carrying a comment that read *"function-local: 2 * 8 = 16 bytes"*: that is the **module-scope** rule
+(`var X[N]` = N*8), applied to a **function-local** (where `var X[N]` = N bytes). A 16-byte kernel write
+therefore landed in a 2-byte frame slot. agnos had the identical mistake in `#98`'s own buffer.
+
+⚠ **The symptom pointed away from the cause**: buttons worked and motion did not, so the chain read as
+half-plumbed and the hunt went through QEMU mouse selection, `info mice`, and the syscall's reachability
+first. The tell in hindsight is that the two fields reading as garbage were the FIRST two — the ones
+inside a 2-byte slot's blast radius. ⚠ No host test can reach this line: it is the one that talks to the
+kernel, and the off-target arm returns 0.
+
+⇒ When declaring a buffer for a fixed-size ABI record, write the BYTE COUNT and say so. Never compute it
+as `n * 8`, and re-derive from scope rather than trusting a nearby comment.
 
 ### Changed — cyrius pin 6.5.5 → **6.5.13**
 
