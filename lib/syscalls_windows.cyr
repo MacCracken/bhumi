@@ -37,7 +37,7 @@ enum SysNr {
     SYS_BRK = 12;       # → VirtualAlloc (grow-at-end via committed pages)
     SYS_MUNMAP = 11;    # → VirtualFree(MEM_RELEASE)
     SYS_EXIT = 60;      # → ExitProcess
-    SYS_EXIT_GROUP = 231; # → ExitProcess (aliased — Windows has no process group)
+    SYS_EXIT_GROUP = 231; # NOT rerouted — call sys_exit_group(), never syscall(231)
 }
 
 # File descriptors mirror Linux convention. GetStdHandle maps
@@ -115,6 +115,39 @@ fn sys_exit(code) {
     syscall(SYS_EXIT, code);
     return 0;   # unreachable
 }
+
+# Terminate every thread in the process — the Linux exit_group(2) peer.
+# Routes through SYS_EXIT deliberately: ExitProcess already tears down all
+# threads, so on Windows this IS sys_exit. It exists so a portable epilogue
+# can call one name on every target. Do NOT issue SYS_EXIT_GROUP here — 231
+# has no PE reroute and would emit a raw `0F 05` (illegal instruction).
+# CHANGELOG [6.5.6]
+fn sys_exit_group(code) {
+    syscall(SYS_EXIT, code);
+    return 0;   # unreachable
+}
+
+# Change the working directory — NOT WIRED on Windows.
+#
+# There is no SetCurrentDirectoryW reroute, and inventing one is a COMPILER
+# change (a new 0xF0xx pseudo-syscall + a PE emitter arm), not a stdlib one.
+# Returns -1, the same honest degrade xstat and xrmdir already make on PE.
+# Wire the reroute when a consumer actually needs it. CHANGELOG [6.5.7]
+fn sys_chdir(path) { return 0 - 1; }
+
+# fchownat — no Windows equivalent (no POSIX uid/gid model). Returns -1, the same
+# honest degrade xstat/xrmdir make on PE. CHANGELOG [6.5.7]
+fn sys_fchownat(dirfd, path, uid, gid, flags) { return 0 - 1; }
+
+# at-family constants. The Linux values, defined here so the PORTABLE surface is
+# complete: this peer is STANDALONE (it does not include syscalls_linux_common.cyr,
+# where these live for the Linux/macOS peers), so without them a consumer calling
+# sys_fchownat(AT_FDCWD, ...) fails to compile on this target even though the
+# wrapper exists. The wrapper is a stub here, so the values are nominal — but
+# source portability is the whole point of having the name. CHANGELOG [6.5.7]
+var AT_FDCWD = 0 - 100;
+var AT_SYMLINK_NOFOLLOW = 256;   # 0x100
+var AT_REMOVEDIR = 512;          # 0x200
 
 # VirtualAlloc-backed allocation. The PE reroute intercepts
 # syscall(SYS_MMAP, ...) and emits a VirtualAlloc call with
