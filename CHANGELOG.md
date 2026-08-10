@@ -2,6 +2,24 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed — two function-local `var X[N]` sizings, both writing past their own frames
+
+⛔⛔ The same Cyrius trap twice: **function-local `var X[N]` allocates N BYTES**, not N u64s.
+- `programs/backend-demo.cyr` declared `var evs[32]` — 32 bytes — and then authorised
+  `bhumi_backend_poll(be, &evs, 32, now)` to write **32 events = 256 bytes** into it, 224 past the end and
+  straight over `frame`, `fb`, `be`, `now` and the return address. Invisible on the host, because the
+  non-agnos `_bhumi_kbscan` arm returns no events — but CI cross-compiles this for agnos, where the very
+  first poll drains the whole agnsh-prompt scancode backlog. Now `var evs[256]`.
+- `tests/bhumi.tcyr`'s pointer-decode block had `var prec[2]` for a **16-byte** kernel record (and wrote
+  `store32(&prec + 12, ...)` into it) and `var ptev[4]` for a 32-byte event budget — roughly 40 bytes of
+  its own frame overwritten. ⚠ The asserts passed anyway, which is the worst form of this bug: a green
+  test standing on a corrupted stack. Now `[16]` and `[32]`.
+
+⚠ Both found by an adversarial audit of the pointer chain, not by a failing test — neither could fail on
+the host, and the one that could fail on agnos is an acceptance artifact nobody runs there.
+
 ## [1.1.4] - 2026-08-08 — the POINTER seam: `ptrscan #98`, a kind-tagged event, and a capability gate
 
 ### Added — `src/ptrscan.cyr`, the pointer counterpart to `kbscan.cyr`

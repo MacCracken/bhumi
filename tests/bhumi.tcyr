@@ -550,8 +550,13 @@ fn main() {
     assert_eq(bhumi_button_seen(bhumi_button_event(0, 1)), 1, "...but seen still reports it");
 
     test_group("ptrscan.cyr — record decode is zero-suppressed");
-    var prec[2];                       # 16 bytes: the kernel record
-    var ptev[4];
+    # ⛔⛔ THE SAME BYTES-NOT-WORDS TRAP, IN THE TEST THAT GUARDS THE DECODER. `var prec[2]` is 2 BYTES,
+    # and `store32(&prec + 12, ...)` writes bytes 12-15 of it; `var ptev[4]` is 4 BYTES while
+    # `bhumi_ptr_decode(&prec, &ptev, 4)` is authorised to write 4 events = 32. Roughly 40 bytes of this
+    # frame — other locals and the return address — were being overwritten, and the asserts passed anyway,
+    # which is the worst version of this bug: a green test standing on a smashed stack.
+    var prec[16];                      # 16 BYTES: exactly one kernel ptrscan record
+    var ptev[32];                      # 32 BYTES: room for the 4 events decode is allowed to write
     store32(&prec + 0, 5); store32(&prec + 4, 0 - 3 & 0xFFFFFFFF);
     store32(&prec + 8, 0); store32(&prec + 12, 0);
     assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 1, "motion only -> one event");

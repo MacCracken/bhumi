@@ -39,10 +39,16 @@ fn main() {
     println(" (output+input, foreground)");
 
     var fb = bhumi_backend_fb(be);
-    var evs[32];
+    # ⛔⛔ FUNCTION-LOCAL `var X[N]` IS N **BYTES** IN CYRIUS, not N u64s. This read `var evs[32]` and then
+    # authorised `bhumi_backend_poll` to write **32 EVENTS = 256 BYTES** into it — 224 bytes past the end,
+    # straight over `frame`, `fb`, `be`, `now` and the return address. It never fired on the host because
+    # the non-agnos `_bhumi_kbscan` arm returns 0 events, but CI cross-compiles this for agnos, where the
+    # very first poll drains the whole agnsh-prompt scancode backlog and writes well past four events.
+    # ⇒ 256 BYTES for 32 events. [[feedback_cyrius_var_array_u64_units]]
+    var evs[256];
     var frame = 0;
     while (frame < 3) {
-        var n = bhumi_backend_poll(be, &evs, 32, now);   # gated input drain
+        var n = bhumi_backend_poll(be, &evs, 32, now);   # gated input drain — 32 events x 8 B = 256 B
         bhumi_pattern_bars(fb);                           # render this frame
         var rc = bhumi_backend_present(be, now);          # gated scan-out
         _emit("  frame "); print_num(frame);
