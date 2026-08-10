@@ -2,7 +2,7 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.1.5] - 2026-08-09 — two frames that were being written past
 
 ### Fixed — two function-local `var X[N]` sizings, both writing past their own frames
 
