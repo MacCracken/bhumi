@@ -1,0 +1,149 @@
+# fbdev-probe — prove the Linux fbdev scanout arm reaches the REAL framebuffer (ADR 0003).
+#
+# ⛔⛔ WHY THIS EXISTS, AND WHY THE OBVIOUS VERSION OF IT IS WORTHLESS. The tempting probe is: blit a
+# sentinel, then read it back through bhumi's own mmap and compare. **That passes even when the
+# backend is completely broken.** If `_bhumi_lx_open` had mapped `/dev/fb0` with MAP_PRIVATE — the
+# single most likely mistake here, and the one the cyrius stdlib's own `mmap_file_rw` would have
+# made — the write lands in a private copy-on-write page, the readback reads that same private page,
+# every assertion passes, and **nothing ever appears on the screen**. A readback through the
+# instrument under test cannot see the defect the instrument has.
+#
+# ⇒ The oracle here is EXTERNAL: after presenting through bhumi's mmap, the sentinel is read back
+# through a **separate `open()` + `pread()`** of /dev/fb0. That path shares no page tables with the
+# mapping, so it observes what the device actually holds. MAP_PRIVATE fails it; MAP_SHARED passes.
+# [[feedback_oracle_must_test_external_invariant]]
+#
+# ⚠ It is also POLITE: it saves the 8x8 top-left corner first and restores it afterwards, so running
+# this on a live console leaves the screen byte-identical to how it found it. That matters because
+# the only machines that can run this are machines someone is looking at.
+#
+# Build + run (Linux, needs /dev/fb0 and the `video` group):
+#   cyrius build programs/fbdev-probe.cyr build/fbdev-probe && ./build/fbdev-probe
+#
+# Exit codes — read these, not the text:
+#   0  PASS: geometry queried, sentinel observed through an independent fd, corner restored
+#   1  no framebuffer (absent /dev/fb0, wrong permissions, or not 32bpp) — NOT a failure of the arm
+#   2  geometry query failed
+#   3  the independent read did NOT see the sentinel  <- the MAP_PRIVATE / broken-blit signature
+#   4  could not restore the saved corner (the screen is left dirty; say so loudly)
+
+include "src/main.cyr"
+
+var FBP_SYS_OPEN   = 2;
+var FBP_SYS_CLOSE  = 3;
+var FBP_SYS_PREAD  = 17;
+var FBP_SYS_PWRITE = 18;
+var FBP_O_RDONLY   = 0;
+var FBP_O_RDWR     = 2;
+
+var FBP_N     = 8;                 # probe square, in pixels
+var FBP_ROWB  = 32;                # FBP_N * 4 bytes
+var FBP_SENT  = 0x00BADA55;        # sentinel; alpha byte 0, which the XRGB path ignores
+
+fn fbp_say(s) { sys_write(1, s, strlen(s)); return 0; }
+
+fn fbp_num(n) {
+    var b[24];
+    var i = 24;
+    var v = n;
+    if (v == 0) { fbp_say("0"); return 0; }
+    while (v > 0) { i = i - 1; store8(&b + i, 48 + (v % 10)); v = v / 10; }
+    sys_write(1, &b + i, 24 - i);
+    return 0;
+}
+
+fn main(): i64 {
+    alloc_init();
+
+    var info[24];
+    if (bhumi_output_query(&info) != BHUMI_FBINFO_SIZE) {
+        # ⚠ Deliberately exit 1, not 2: on CI (and on any box without /dev/fb0 or without the
+        # `video` group) this is the CORRECT answer for the arm, not a defect in it.
+        fbp_say("fbdev-probe: no framebuffer available -- /dev/fb0 absent, not permitted, or not 32bpp\n");
+        return 1;
+    }
+    var w     = bhumi_fbinfo_width(&info);
+    var h     = bhumi_fbinfo_height(&info);
+    var pitch = bhumi_fbinfo_pitch(&info);
+    fbp_say("fbdev-probe: geometry "); fbp_num(w); fbp_say("x"); fbp_num(h);
+    fbp_say(" pitch "); fbp_num(pitch);
+    fbp_say(" bpp "); fbp_num(bhumi_fbinfo_bpp(&info));
+    fbp_say(" pxfmt "); fbp_num(bhumi_fbinfo_pxformat(&info));
+    fbp_say("\n");
+    if (w < FBP_N) { return 2; }
+    if (h < FBP_N) { return 2; }
+
+    # --- save the corner we are about to scribble on -------------------------------------------
+    var saved = alloc(FBP_N * FBP_ROWB);
+    var rfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDONLY, 0);
+    if (rfd < 0) { fbp_say("fbdev-probe: cannot open /dev/fb0 for reading\n"); return 1; }
+    var r = 0;
+    while (r < FBP_N) {
+        if (syscall(FBP_SYS_PREAD, rfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) != FBP_ROWB) {
+            syscall(FBP_SYS_CLOSE, rfd);
+            fbp_say("fbdev-probe: short read saving the corner\n");
+            return 2;
+        }
+        r = r + 1;
+    }
+    syscall(FBP_SYS_CLOSE, rfd);
+
+    # --- present a sentinel square THROUGH BHUMI (the code under test) --------------------------
+    var fb = bhumi_fb_new(FBP_N, FBP_N);
+    if (fb == 0) { return 2; }
+    bhumi_fb_clear(fb, FBP_SENT);
+    if (bhumi_output_present(fb) != 0) { fbp_say("fbdev-probe: present refused\n"); return 3; }
+
+    # --- THE ORACLE: read it back through an INDEPENDENT fd -------------------------------------
+    # Nothing here touches bhumi's mapping. A MAP_PRIVATE backend passes every other check in this
+    # file and fails exactly this one.
+    var got = alloc(FBP_ROWB);
+    var vfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDONLY, 0);
+    if (vfd < 0) { return 3; }
+    var seen = 0;
+    var bad  = 0;
+    r = 0;
+    while (r < FBP_N) {
+        if (syscall(FBP_SYS_PREAD, vfd, got, FBP_ROWB, r * pitch) == FBP_ROWB) {
+            var c = 0;
+            while (c < FBP_N) {
+                # Compare 24 bits only: the fb's unused byte is the driver's business, and #92-style
+                # opaque writes disagree with it by design.
+                if ((load32(got + c * 4) & 0xFFFFFF) == FBP_SENT) { seen = seen + 1; }
+                else { bad = bad + 1; }
+                c = c + 1;
+            }
+        }
+        r = r + 1;
+    }
+    syscall(FBP_SYS_CLOSE, vfd);
+
+    # --- restore, before reporting, so a failing run still leaves a clean screen ----------------
+    var wfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDWR, 0);
+    var restored = 0;
+    if (wfd >= 0) {
+        r = 0;
+        while (r < FBP_N) {
+            if (syscall(FBP_SYS_PWRITE, wfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) == FBP_ROWB) {
+                restored = restored + 1;
+            }
+            r = r + 1;
+        }
+        syscall(FBP_SYS_CLOSE, wfd);
+    }
+
+    fbp_say("fbdev-probe: sentinel pixels seen through an independent fd: ");
+    fbp_num(seen); fbp_say(" of "); fbp_num(FBP_N * FBP_N);
+    fbp_say(" (mismatched "); fbp_num(bad); fbp_say(")\n");
+
+    if (seen != (FBP_N * FBP_N)) {
+        fbp_say("fbdev-probe: FAIL -- the blit did not reach the device (MAP_PRIVATE? wrong pitch?)\n");
+        return 3;
+    }
+    if (restored != FBP_N) {
+        fbp_say("fbdev-probe: PASS, but the corner was NOT fully restored -- screen left dirty\n");
+        return 4;
+    }
+    fbp_say("fbdev-probe: PASS -- scanout reaches /dev/fb0, corner restored\n");
+    return 0;
+}

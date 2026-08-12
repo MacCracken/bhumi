@@ -2,6 +2,99 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-08-12 — Linux is a real display target, and there are pixels on the screen
+
+⭐⭐⭐ **bhumi scans out on Linux.** `src/scanout.cyr` grows a `#ifdef CYRIUS_TARGET_LINUX` arm: geometry
+from sysfs, pixels through an `mmap` of `/dev/fb0`. Verified on a 2560x1440 amdgpu console —
+`geometry 2560x1440 pitch 10240 bpp 32 pxfmt 1`, **64 of 64 sentinel pixels observed through an
+independent fd**. Charter change recorded in
+[ADR 0003](docs/adr/0003-linux-is-a-real-display-target-fbdev-first.md); operator decision, 2026-08-12.
+
+⛔ **What this actually unblocked.** Nothing above the seam was broken. aethersafha's compositor already
+ran a full frame on Linux — AF_UNIX wire, surface dispatch, window mint, composite, chrome, damage band,
+teardown, two real clients connected and presented — and produced a **correct frame in RAM that nothing
+scanned out**, because these two functions returned -1. The whole Linux desktop was blocked on them.
+
+### Added — the Linux fbdev arm
+
+- **Geometry from sysfs, not an ioctl.** `/sys/class/graphics/fb0/{virtual_size,stride,bits_per_pixel}`
+  fills every field of the existing 24-byte struct as plain text — no `fb_var_screeninfo` layout risk.
+- **Exactly one ioctl, for the one thing sysfs cannot answer.** `FBIOGET_VSCREENINFO` reads the
+  `red`/`blue` bit offsets to derive `pixel_format`. ⚠ Assuming BGRX would silently swap red and blue on
+  any framebuffer that is not the DRM default — a wrong picture, not an error. Fails soft to BGRX.
+- **32bpp only**, refused otherwise rather than converted; the pixel contract is XRGB8888.
+- **Four flat guards** — `CYRIUS_TARGET_{AGNOS,LINUX,MACOS,WIN}`. cycc predefines exactly one via an
+  if/else ladder whose own comment states agnos is *not* `CYRIUS_TARGET_LINUX`. ⛔ Nested `#ifdef` is
+  used nowhere in this ecosystem and was not introduced. macOS/Windows keep the -1 stub **as a
+  decision** — they have their own desktops.
+- ⛔ **No new stdlib dependencies.** `[deps].stdlib` is unchanged, so "flat domain module, no stdlib
+  includes" stays honest.
+
+### ⛔⛔ Two traps this could have shipped with, both avoided by measurement
+
+- **`MAP_SHARED`, never `MAP_PRIVATE`.** The stdlib's own `mmap_file_rw` (`lib/mmap.cyr:100-104`) passes
+  **MAP_PRIVATE**. On a framebuffer that is a copy-on-write mapping: every write succeeds, no error is
+  reported anywhere, and **nothing ever appears on the screen**. Reusing the convenience wrapper was the
+  obvious move and would have produced a backend that passed every self-check while displaying nothing.
+  ⇒ the arm calls `mmap` directly. This is also why the probe's oracle is external (below).
+- **`memcpy` is a BYTE loop** (`lib/string.cyr:55-62`). A 2560x1440 present is 14.7 MB — **14.7 million
+  iterations per frame**. aethersafha measured this exact class of per-pixel overhead at 12.72 ns/px
+  against 1.03 ns/px for a flat row walk, a 12.3x difference for byte-identical stores. ⇒ `_bhumi_lx_row`
+  copies 8 bytes at a time with a 4/1-byte tail.
+
+### Added — `programs/fbdev-probe.cyr`, whose oracle is deliberately external
+
+⛔ **The obvious probe is worthless here.** Blit a sentinel, read it back through bhumi's own mapping,
+compare — that passes even under MAP_PRIVATE, because the write and the read hit the same private page.
+A readback through the instrument under test cannot see the defect the instrument has. ⇒ the probe
+re-opens `/dev/fb0` on a **separate fd** and `pread`s, sharing no page tables with the mapping.
+⚠ It also saves and restores the 8x8 corner it uses, so running it on a live console leaves the screen
+byte-identical. Exit codes distinguish *no framebuffer* (1, the correct answer on CI) from *the blit did
+not reach the device* (3), because "no pixels" has more than one cause.
+
+### Changed — the unit suite no longer writes to your screen
+
+⛔ Two assertions — `present -1 on non-agnos host` and `query -1 on non-agnos host` — became **failures by
+succeeding**: query answered 24 and present answered 0, because it had genuinely scanned out. ⚠ The
+failure was the mild half. `present` on a box with a live `/dev/fb0` **writes to the physical display**,
+so `cyrius test` painted an 8x8 block onto the operator's screen. **A unit test must not have a side
+effect you can see.** The `present` assertion is gone (the device path belongs to the probe, run on
+purpose); `query` is kept but asserts the *contract* — either -1 or a complete, self-consistent struct —
+because its honest answer differs between a dev box and CI, and asserting one value is what made the old
+test wrong.
+
+⭐ **39 new assertions over the pure half**, which is the half CI can actually run: sysfs parsing
+(including a lone `"2560"` with no comma, which must be REJECTED — accepting it would store height 0 and
+scan out nothing, silently), integer parsing, pixel-format derivation from bit offsets, struct packing,
+and blit clipping to both edges. **288 passed, 0 failed** (was 247).
+
+⭐⭐ **And three more device-touching sites the first pass missed**, found by audit rather than by a
+failing test — because they *passed*. `tests/bhumi.tcyr` asserted `bhumi_seat_present(seat, fb, t) ==
+bhumi_output_present(fb)` and the backend equivalent, calling the device op on **both sides** of the
+comparison, and `fuzz/bhumi.fcyr` called `bhumi_backend_present` **every iteration of the fuzz loop**.
+Free while both sides answered -1; on a live fbdev that is two real blits per assertion and thousands
+per fuzz run, all reporting success. ⇒ authorized cases now assert the **gate predicate**
+(`bhumi_seat_can`) or pass a **null fb** so the gate is exercised and the device is not; DENIED cases
+still go through `present`, deliberately, since the gate returns before the device is reached — which
+also proves the denial short-circuits rather than blitting first.
+⭐ **Gated by measurement, not by inspection**: a `dd` of `/dev/fb0` before and after `cyrius test`
+now compares **byte-identical**.
+
+### Changed — toolchain pin 6.5.13 → **6.5.20**
+
+Latest. `cyrius lib sync --full` (107-file snapshot) and `dist/` regenerated at the new pin.
+⚠ Also fixes a header that was wrong **at its own tag**: `git show 1.1.5:dist/bhumi.cyr` reads
+`# Version: 1.1.4`, so anyone consuming the published 1.1.5 bundle read the wrong version out of it.
+(HEAD already carried the corrected header; it was the tag that shipped stale.)
+
+### Changed — the charter, in every place that asserted it
+
+`docs/development/roadmap.md`'s *"Out of scope (for v1.0): Non-AGNOS targets"* is **struck** (written out,
+not deleted — that line and ADR 0001's matching clause were the whole reason the frames went nowhere),
+and ADR 0001 is marked **partially superseded**: its agnos decision stands unchanged and only the
+non-agnos clause is reversed. ⚠ Blanket-marking 0001 "Superseded" would have implied the agnos mechanism
+had changed, which it has not.
+
 ## [1.1.5] - 2026-08-09 — two frames that were being written past
 
 ### Fixed — two function-local `var X[N]` sizings, both writing past their own frames
@@ -310,6 +403,12 @@ kavach sandboxes ([ADR 0002](docs/adr/0002-seat-lean-capability-enforcer.md)).
 - `fuzz/bhumi.fcyr` — extended with the seat gate: random switch/release/grant
   sequences hold at-most-one-active, manager/active consistency, and
   background-always-denied (200k+ iterations).
+
+## [0.3.0] — 2026-07-02
+
+> ⚠ **HEADING RESTORED 2026-08-12.** Tag `0.3.0` exists and ships M2, but this section had **no
+> heading of its own** — the M2 narrative sat orphaned inside the 0.4.0 entry, so the file read as if
+> 0.3.0 had never been released. "CHANGELOG complete from 0.1.0" is a v1.0 criterion; it was not met.
 
 **M2 — Input (keyboard).** The compositor's events-in path: drain the USB/xHCI
 HID keyboard via the agnos `kbscan`#42 syscall and normalize it into a key-event

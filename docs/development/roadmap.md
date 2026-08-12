@@ -96,4 +96,25 @@ bhumi (first downstream consumer green). Removes the `bhumi_scaffold_ok` sentine
 - **Foreign-app surface hosting.** That is [`mehman`](https://github.com/MacCracken/mehman) (the swallow-stage compat backend).
 - **The Wayland protocol / client lifecycle.** Stays in aethersafha; bhumi is the platform below it.
 - **Multi-GPU / multi-seat orchestration** beyond a single seat — deferred past v1.0.
-- **Non-AGNOS targets.** bhumi is agnos-kernel-facing by design (it bootstraps on Linux only insofar as agnodrm does).
+- ⛔ ~~**Non-AGNOS targets.** bhumi is agnos-kernel-facing by design (it bootstraps on Linux only insofar
+  as agnodrm does).~~ **STRUCK 2026-08-12 — operator decision, [ADR 0003](../adr/0003-linux-is-a-real-display-target-fbdev-first.md).**
+  **Linux is a real display target.** Written out rather than deleted because this line, and ADR 0001's
+  matching clause, were the whole reason a working compositor produced correct frames into RAM that
+  nothing scanned out. Shipped in 1.2.0: `src/scanout.cyr` has a Linux fbdev arm, iron-verified at
+  2560x1440 through an independent-fd readback oracle.
+  ⚠ **macOS and Windows are still out of scope, and that is the decision** — they have their own
+  desktops and bhumi is not competing with them. They keep the `-1` stub.
+
+## In scope, not yet built — the Linux track
+
+- **DRM/KMS with dumb buffers**, as a second backend behind the same `bhumi_backend_*` interface.
+  ADR 0003 defers rather than rejects it: it needs buffer-lifetime and page-flip semantics the current
+  two-function seam cannot express. Until it lands, fbdev is single-buffered and a slow frame can tear.
+- **Linux input** — `_bhumi_kbscan` / `_bhumi_ptrscan` over evdev (`/dev/input/event*`). ⛔ Two things a
+  reader will otherwise get wrong: it needs the `input` group (an operator action, not a code change),
+  and **the scancode table does not transfer wholesale** — Linux `KEY_*` base codes are AT/XT Set-1 make
+  codes so the base plane maps directly, but `_bhumi_set1_ext_to_hid` (`src/kbscan.cyr`) is keyed on
+  **0xE0-prefixed** codes, which evdev never emits. Arrows, RCtrl/RAlt/Meta, Home/End/PgUp/PgDn and
+  Insert/Delete all need a second table.
+- **A seat concept for Linux** — DRM master / VT switching. Not needed for fbdev from a bare VT; it
+  becomes real with DRM/KMS. See [ADR 0002](../adr/0002-seat-lean-capability-enforcer.md).

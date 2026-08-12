@@ -1,7 +1,13 @@
 # 0001 — Scan out via the agnos fbinfo/blit syscalls
 
-**Status**: Accepted
+**Status**: Accepted — **partially superseded by [0003](0003-linux-is-a-real-display-target-fbdev-first.md)**
 **Date**: 2026-07-02
+
+> ⚠ **SCOPE OF THE SUPERSESSION, because "Superseded" alone would mislead.** Everything this ADR decides
+> about **agnos** stands unchanged and is still the shipped mechanism: `#38 fbinfo` / `#39 blit`, the
+> 24-byte struct, `dstxy = 0` for a full-screen present, and the BGRX pixel-format contract.
+> **Only one clause is reversed** — *"Non-agnos targets get stub wrappers that return -1"*, below.
+> Linux is a real display target as of 1.2.0; macOS and Windows keep the -1 stub. See ADR 0003.
 
 ## Context
 
@@ -26,9 +32,11 @@ scanout calls cannot be compiled unconditionally.
 ## Decision
 
 Scan out through `src/scanout.cyr`, calling the stdlib `sys_fbinfo` / `sys_blit`
-wrappers behind `#ifdef CYRIUS_TARGET_AGNOS`. Non-agnos targets get stub
-wrappers that return -1 ("no framebuffer"), so all logic above the two thin
-wrappers is portable and host-testable. Scope, in:
+wrappers behind `#ifdef CYRIUS_TARGET_AGNOS`. ~~Non-agnos targets get stub
+wrappers that return -1 ("no framebuffer")~~ — **reversed for Linux at 1.2.0 by
+[ADR 0003](0003-linux-is-a-real-display-target-fbdev-first.md); macOS and Windows still do** — so all
+logic above the two thin wrappers is portable and host-testable. ⭐ That portability is what made ADR
+0003 cheap: the Linux arm filled in these same two functions and changed nothing above them. Scope, in:
 
 - `bhumi_output_present(fb)` blits at the **origin, unscaled** — `dstxy = 0`
   (x=0, y=0, scale=0→1×). Full-screen present needs no `dstxy` encoding

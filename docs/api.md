@@ -1,6 +1,9 @@
 # bhumi Public API — frozen at v0.7.0
 
-The stable public surface: **70 functions + the semantic constants** below.
+The stable public surface: **71 functions + 16 semantic constants**, as counted and enforced by
+[`scripts/api-surface.sh`](../scripts/api-surface.sh) (`api-surface: OK — 71 functions + 16 constants`).
+⚠ This line read "70 functions" while the gate enforced 71 — check it against the script's own output,
+not against the prose, because the script is what fails the build.
 Consume the library via the single-file bundle
 (`[deps.bhumi] modules = ["dist/bhumi.cyr"]`). This contract is machine-enforced
 against the bundle by [`scripts/api-surface.sh`](../scripts/api-surface.sh) in CI —
@@ -21,10 +24,26 @@ All functions return / take `i64`; pointers are `i64` addresses.
 
 ## Output — scanout (`scanout.cyr`)
 
-- `bhumi_output_query(info)` — fill a ≥ `BHUMI_FBINFO_SIZE` buffer with display geometry; bytes / `-1`.
+- `bhumi_output_query(info)` — fill a ≥ `BHUMI_FBINFO_SIZE` buffer with display geometry; `BHUMI_FBINFO_SIZE` (24) / `-1`.
 - `bhumi_fbinfo_{width,height,pitch,bpp,pxformat,present}(info)` — parse the geometry struct.
+  ⚠ `bpp` here is **bits** per pixel (32); `bhumi_fb_bpp(fb)` is **bytes** (4). Same word, different unit.
 - `bhumi_output_format_ok(info)` — `1` if the framebuffer's byte order matches `BhumiFb` (BGRX).
-- `bhumi_output_present(fb)` — scan the framebuffer out at the origin; `0` / `-1` (or `-1` off-agnos).
+- `bhumi_output_present(fb)` — scan the framebuffer out at the origin; `0` / `-1`.
+
+⭐ **Both are LIVE ON LINUX as of 1.2.0** ([ADR 0003](adr/0003-linux-is-a-real-display-target-fbdev-first.md)).
+This section used to end *"(or `-1` off-agnos)"*, which is no longer true and was the sentence a caller
+would have read to conclude there was no point calling it on a host.
+
+| target | `bhumi_output_query` / `bhumi_output_present` |
+|---|---|
+| **agnos** | `#38 fbinfo` / `#39 blit` |
+| **Linux** | sysfs geometry + one `FBIOGET_VSCREENINFO`; `mmap` of `/dev/fb0` + row copy. Needs a 32bpp fb and the `video` group; `-1` otherwise |
+| **macOS / Windows** | `-1` — deliberate, those platforms have their own desktops |
+
+⛔ **`bhumi_output_present` has a VISIBLE SIDE EFFECT on Linux.** It writes to the physical display.
+Do not call it from a test — bhumi's own suite learned this the hard way and now asserts the seat gate
+predicate instead of round-tripping through the device. Use `programs/fbdev-probe.cyr` to exercise the
+real path deliberately; it saves and restores the region it uses.
 
 ## Patterns (`pattern.cyr`)
 

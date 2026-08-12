@@ -40,6 +40,13 @@ jobs:
         run: |
           mkdir -p build
           cyrius build programs/smoke.cyr build/${{ github.event.repository.name }}-smoke
+          # fbdev-probe is the Linux scanout arm's only end-to-end exerciser (ADR 0003). It is built
+          # HOST-ONLY and never --agnos: its whole body is the CYRIUS_TARGET_LINUX arm.
+          # ⚠ Compile coverage only. It is deliberately NOT RUN here — GitHub's ubuntu-latest has no
+          # /dev/fb0, so it would answer exit 1 ("no framebuffer"), which is the correct answer and
+          # proves nothing. Running it belongs on a machine with a console; the pure half of the arm
+          # (sysfs parsing, struct packing, blit clipping) is covered by `cyrius test` instead.
+          cyrius build programs/fbdev-probe.cyr build/fbdev-probe
 
       - name: Test
         # v5.6.28: bare `cyrius test` picks up the [build].test entry

@@ -231,12 +231,20 @@ fn main(): i64 {
         var bop = _fz_mod(2);
         if (bop == 0) { bhumi_backend_deactivate(fzbe); }
         if (bop == 1) { bhumi_backend_activate(fzbe); }
-        var bpres = bhumi_backend_present(fzbe, 1000);
+        # ⛔⛔ THE FOREGROUND HALF NO LONGER CALLS `bhumi_backend_present` (1.2.0). This loop used to
+        # call it unconditionally, which was free while every non-agnos target answered -1 without
+        # touching hardware. With the Linux fbdev arm an authorized call is a REAL BLIT, so a fuzz
+        # loop became a loop that repaints the operator's screen thousands of times — and it would
+        # still have passed, because the property under test is the gate, not the pixels.
+        # ⇒ The DENIED half still goes through `backend_present`, and deliberately: the gate returns
+        # before the device is reached, so it is safe here AND it proves the denial short-circuits
+        # rather than blitting first and reporting a denial afterwards. The FOREGROUND half asserts
+        # the gate predicate instead, which is the only half that could touch the device.
         if (bhumi_seat_active(bhumi_backend_seat(fzbe)) == 0) {
-            if (bpres != BHUMI_SEAT_DENIED) { return _fz_fail("FAIL: backgrounded backend not denied\n"); }
+            if (bhumi_backend_present(fzbe, 1000) != BHUMI_SEAT_DENIED) { return _fz_fail("FAIL: backgrounded backend not denied\n"); }
         }
         if (bhumi_seat_active(bhumi_backend_seat(fzbe)) == 1) {
-            if (bpres == BHUMI_SEAT_DENIED) { return _fz_fail("FAIL: foreground backend wrongly denied\n"); }
+            if (bhumi_seat_can(bhumi_backend_seat(fzbe), BHUMI_DEV_OUTPUT, 1000) == 0) { return _fz_fail("FAIL: foreground backend wrongly denied\n"); }
         }
 
         i = i + 1;

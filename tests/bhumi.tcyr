@@ -134,16 +134,94 @@ fn main() {
     store32(&info + BHUMI_FBINFO_FLAGS, 2);
     assert_eq(bhumi_fbinfo_present(&info), 0, "flags=2 -> present bit clear");
 
-    # ----- scanout.cyr — present / query guards + host stub -------
-    # On this (non-agnos) host the kernel seam returns -1; the null guards
-    # short-circuit before it. On agnos these hit sys_blit/sys_fbinfo.
+    # ----- scanout.cyr — present / query guards -------------------
+    # The null guards short-circuit before the kernel seam on every target.
     test_group("scanout.cyr — present / query");
     assert_eq(bhumi_output_present(0), -1, "present null fb rejected");
     assert_eq(bhumi_output_query(0),  -1, "query null buf rejected");
     var sfb = bhumi_fb_new(8, 8);
     assert_neq(sfb, 0, "8x8 fb allocates");
-    assert_eq(bhumi_output_present(sfb),  -1, "present -1 on non-agnos host (no framebuffer)");
-    assert_eq(bhumi_output_query(&info),  -1, "query -1 on non-agnos host (no framebuffer)");
+
+    # ⛔⛔ THERE IS NO `bhumi_output_present(sfb)` ASSERTION HERE ANY MORE, AND THAT IS DELIBERATE.
+    # Two assertions used to live here — "present -1 on non-agnos host (no framebuffer)" and "query
+    # -1 on non-agnos host" — and 1.2.0's Linux fbdev arm turned both into FAILURES BY SUCCEEDING:
+    # query answered 24 and present answered 0, because it had genuinely scanned out. ⚠ The failure
+    # was the mild half. The real problem is that `present` on a box with a live `/dev/fb0` **writes
+    # to the physical display**, so running the unit suite painted an 8x8 block onto the operator's
+    # screen. A unit test must not have a side effect you can SEE. The device path belongs to
+    # `programs/scanout-demo`, which you run on purpose; the pure half is covered below.
+    #
+    # `query` is kept but asserted ENVIRONMENT-TOLERANTLY: it reads geometry and paints nothing, and
+    # its answer legitimately differs between a dev box with a framebuffer and CI without one.
+    # Asserting a single value here is what made the old test wrong — so assert the CONTRACT instead:
+    # either "unavailable", or a complete and self-consistent struct.
+    var qrc = bhumi_output_query(&info);
+    assert(((qrc == -1) || (qrc == BHUMI_FBINFO_SIZE)) == 1, "query answers -1 or 24, never anything else");
+    if (qrc == BHUMI_FBINFO_SIZE) {
+        assert(bhumi_fbinfo_width(&info)  > 0, "live fb: width is positive");
+        assert(bhumi_fbinfo_height(&info) > 0, "live fb: height is positive");
+        assert_eq(bhumi_fbinfo_bpp(&info), 32, "live fb: 32 bpp (the only format this seam accepts)");
+        assert(bhumi_fbinfo_pitch(&info) >= (bhumi_fbinfo_width(&info) * 4), "live fb: pitch covers a row");
+        assert_eq(bhumi_fbinfo_present(&info), 1, "live fb: present bit set");
+    }
+
+    # ----- scanout.cyr — the Linux arm's PURE half ----------------
+    # Everything the fbdev backend does that does NOT need a device. This is the half CI can run,
+    # and the half that would otherwise only be checked by looking at a screen.
+    test_group("scanout.cyr — sysfs parsing (pure)");
+    var wh[8];
+    assert_eq(_bhumi_parse_wh("2560,1440\n", 10, &wh), 0, "virtual_size parses");
+    assert_eq(load32(&wh),     2560, "  -> width");
+    assert_eq(load32(&wh + 4), 1440, "  -> height");
+    assert_eq(_bhumi_parse_wh("8,8", 3, &wh), 0, "no trailing newline is fine");
+    assert_eq(load32(&wh),     8, "  -> width");
+    assert_eq(load32(&wh + 4), 8, "  -> height");
+    # ⛔ A LONE NUMBER MUST BE REJECTED, not read as a width. Accepting it would store height 0 and
+    # scan out nothing at all, silently — the exact shape of failure this module exists to avoid.
+    assert_eq(_bhumi_parse_wh("2560", 4, &wh),   -1, "missing comma rejected");
+    assert_eq(_bhumi_parse_wh("2560,", 5, &wh),  -1, "missing height rejected");
+    assert_eq(_bhumi_parse_wh(",1440", 5, &wh),  -1, "missing width rejected");
+    assert_eq(_bhumi_parse_wh("x,1440", 6, &wh), -1, "non-numeric width rejected");
+    assert_eq(_bhumi_parse_wh("", 0, &wh),       -1, "empty rejected");
+
+    assert_eq(_bhumi_parse_int("10240\n", 6), 10240, "stride parses");
+    assert_eq(_bhumi_parse_int("32\n", 3),       32, "bits_per_pixel parses");
+    assert_eq(_bhumi_parse_int("0\n", 2),         0, "zero is a value, not an error");
+    assert_eq(_bhumi_parse_int("\n", 1),         -1, "no digits -> -1");
+    assert_eq(_bhumi_parse_int("abc", 3),        -1, "non-numeric -> -1");
+
+    test_group("scanout.cyr — pixel format from fb_bitfield offsets (pure)");
+    # XRGB8888 LE: red at bit 16, blue at bit 0 -> bytes [B,G,R,X] -> BGRX, what BhumiFb stores.
+    assert_eq(_bhumi_pxfmt_of_offsets(16, 0), BHUMI_PXFMT_BGRX, "red>blue -> BGRX");
+    assert_eq(_bhumi_pxfmt_of_offsets(0, 16), BHUMI_PXFMT_RGBX, "red<blue -> RGBX");
+
+    test_group("scanout.cyr — fbinfo_fill (pure)");
+    var fi[24];
+    _bhumi_fbinfo_fill(&fi, 2560, 1440, 10240, 32, BHUMI_PXFMT_BGRX, 1);
+    assert_eq(bhumi_fbinfo_width(&fi),    2560,  "fill -> width");
+    assert_eq(bhumi_fbinfo_height(&fi),   1440,  "fill -> height");
+    assert_eq(bhumi_fbinfo_pitch(&fi),    10240, "fill -> pitch");
+    assert_eq(bhumi_fbinfo_bpp(&fi),      32,    "fill -> bpp is BITS, not bytes");
+    assert_eq(bhumi_fbinfo_pxformat(&fi), 1,     "fill -> pxfmt");
+    assert_eq(bhumi_fbinfo_present(&fi),  1,     "fill -> present");
+    assert_eq(bhumi_output_format_ok(&fi), 1,    "a BGRX fb takes a raw BhumiFb blit");
+    # A filled struct must round-trip through the SAME accessors the agnos arm feeds, or the two
+    # arms disagree about the struct while both looking correct.
+    _bhumi_fbinfo_fill(&fi, 800, 600, 3200, 32, BHUMI_PXFMT_RGBX, 0);
+    assert_eq(bhumi_fbinfo_present(&fi),   0, "present=0 clears the flag");
+    assert_eq(bhumi_output_format_ok(&fi), 0, "an RGBX fb needs channel swapping");
+
+    test_group("scanout.cyr — blit clipping (pure)");
+    assert_eq(_bhumi_blit_rows(100, 1440, 0),     100,  "fully on-screen -> all rows");
+    assert_eq(_bhumi_blit_rows(100, 1440, 1400),  40,   "off the bottom -> clipped");
+    assert_eq(_bhumi_blit_rows(100, 1440, 1440),  0,    "origin at the bottom edge -> 0 rows");
+    assert_eq(_bhumi_blit_rows(100, 1440, 9999),  0,    "origin past the bottom -> 0 rows");
+    assert_eq(_bhumi_blit_row_bytes(64, 2560, 0),    256, "fully on-screen -> w*4 bytes");
+    assert_eq(_bhumi_blit_row_bytes(64, 2560, 2528), 128, "off the right -> clipped to the edge");
+    assert_eq(_bhumi_blit_row_bytes(64, 2560, 2560), 0,   "origin at the right edge -> 0 bytes");
+    # ⚠ The clip must be exact, not approximate: one pixel too many writes past the end of a row and
+    # into the NEXT row's left edge, which looks like tearing rather than like a bug.
+    assert_eq(_bhumi_blit_row_bytes(1, 2560, 2559), 4, "last pixel of a row still lands");
 
     # ⛔ THE agnos RETURN CONVENTION — the half of the 2026-08-02 iron bug a host CAN test.
     # `#38 fbinfo` fills the struct and returns **0**, not the 24 this module's doc promises, and
@@ -338,11 +416,21 @@ fn main() {
 
     # ----- seat.cyr — device access ONLY through the gate --------
     test_group("seat.cyr — gated present / poll");
+    # ⛔⛔ THE AUTHORIZED CASE IS TESTED WITH A **NULL** FB, NOT A REAL ONE, SINCE 1.2.0.
+    # This assertion used to read `bhumi_seat_present(seatB, gfb, tnow) == bhumi_output_present(gfb)`,
+    # which called the device op TWICE. That was free while every non-agnos target answered -1 without
+    # touching anything. With the Linux fbdev arm it became **two live blits onto the operator's
+    # screen per test run**, and the assertion still passed — 0 == 0 — so nothing complained.
+    # ⇒ Passing 0 keeps the gate under test and takes the device out of it entirely: the gate is
+    # checked FIRST (`seat.cyr:203`), so an authorized seat falls through to `bhumi_output_present(0)`,
+    # which rejects null before any syscall. Authorized -> -1, denied -> BHUMI_SEAT_DENIED (-2), and
+    # the two are distinct, which is the whole property this group exists to prove.
+    assert_eq(bhumi_seat_present(seatB, 0, tnow), -1, "authorized present reaches the raw op (which rejects null)");
+    assert_eq(bhumi_seat_present(seatA, 0, tnow), BHUMI_SEAT_DENIED, "background seat present -> DENIED (never reaches the op)");
+    # And the gate predicate itself, directly — no device in the path at all.
+    assert_eq(bhumi_seat_can(seatB, BHUMI_DEV_OUTPUT, tnow), 1, "authorized seat may output");
+    assert_eq(bhumi_seat_can(seatA, BHUMI_DEV_OUTPUT, tnow), 0, "background seat may not output");
     var gfb = bhumi_fb_new(8, 8);
-    # seatB is active with output|input; authorized op returns the raw device
-    # result (host: -1 no framebuffer), NOT the denial sentinel.
-    assert_eq(bhumi_seat_present(seatB, gfb, tnow), bhumi_output_present(gfb), "authorized present == raw op (gate passed)");
-    assert_eq(bhumi_seat_present(seatA, gfb, tnow), BHUMI_SEAT_DENIED, "background seat present -> DENIED");
     var gprev[8];
     bhumi_input_init(&gprev);
     var gevs[8];
@@ -407,18 +495,27 @@ fn main() {
     # Foreground backend: frame-loop ops pass the gate (host returns 0 / raw op).
     var bevs[8];
     assert_eq(bhumi_backend_poll(be, &bevs, 1, 1000), 0, "poll passes the gate (0 on host)");
-    assert_eq(bhumi_backend_present(be, 1000), bhumi_output_present(bhumi_backend_fb(be)), "present passes the gate (raw op)");
+    # ⛔ `bhumi_backend_present` takes its fb FROM THE BACKEND, so unlike the seat group above there is
+    # no null-fb trick available — any authorized call blits for real. Since 1.2.0 the authorized case
+    # is therefore asserted on the GATE PREDICATE, which is the only thing this group was ever testing;
+    # the old form called the device op twice and painted the screen twice on every `cyrius test`.
+    # ⚠ The DENIED cases below are still asserted through `backend_present` on purpose — the gate
+    # returns before the device is touched, so they are safe AND they prove the denial actually
+    # short-circuits rather than blitting and then reporting a denial.
+    assert_eq(bhumi_seat_can(bhumi_backend_seat(be), BHUMI_DEV_OUTPUT, 1000), 1, "foreground backend may present");
 
     # VT-switch away: the backgrounded backend is denied at the gate.
     bhumi_backend_deactivate(be);
     assert_eq(bhumi_backend_poll(be, &bevs, 1, 1000), BHUMI_SEAT_DENIED, "backgrounded poll -> DENIED");
     assert_eq(bhumi_backend_present(be, 1000), BHUMI_SEAT_DENIED, "backgrounded present -> DENIED");
     bhumi_backend_activate(be);
-    assert_eq(bhumi_backend_present(be, 1000), bhumi_output_present(bhumi_backend_fb(be)), "reactivated -> passes again");
+    assert_eq(bhumi_seat_can(bhumi_backend_seat(be), BHUMI_DEV_OUTPUT, 1000), 1, "reactivated -> may present again");
 
     # A backend opened with an output-only capability: can present, cannot poll.
     var be2 = bhumi_backend_open(bhumi_cap_new(1, BHUMI_DEV_OUTPUT, 0, 1), 32, 16);
-    assert_neq(bhumi_backend_present(be2, 1000), BHUMI_SEAT_DENIED, "output-only backend can present");
+    # Gate predicate, not a live present — same reason as above: this seat is AUTHORIZED, so calling
+    # `bhumi_backend_present` here would blit for real on any box with a framebuffer.
+    assert_eq(bhumi_seat_can(bhumi_backend_seat(be2), BHUMI_DEV_OUTPUT, 1000), 1, "output-only backend may present");
     assert_eq(bhumi_backend_poll(be2, &bevs, 1, 1000), BHUMI_SEAT_DENIED, "output-only backend poll -> DENIED");
 
     # Null-capability safety (regression — pre-release review): a null cap (e.g.
