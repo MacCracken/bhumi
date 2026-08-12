@@ -5,6 +5,11 @@
 
 ## Version
 
+**1.3.0** (2026-08-12) — ⭐⭐ **Linux KEYBOARD over evdev.** `/dev/input/event*` -> `EV_KEY` -> Set-1 ->
+HID. Proven in QEMU through the emulated input device (QMP `send-key esc` -> usage 41), negative-
+controlled. ⛔ **Base plane only** — evdev emits no 0xE0 prefix, so arrows/RCtrl/Meta/Home/End/PgUp/
+PgDn/Insert/Delete are unmapped and dropped until a second table lands. ⚠ Pointer still stubbed.
+
 **1.2.1** (2026-08-12) — ⛔ **1.2.0's Linux arm displayed nothing on shadow-buffer fbdevs.** It used
 `mmap` + stores, correct on amdgpu (real scanout memory) and silently a no-op on `simpledrm` and
 anything on `drm_fbdev_shmem`, where a store damages nothing and the shadow is never flushed.

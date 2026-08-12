@@ -2,6 +2,48 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] - 2026-08-12 — the Linux KEYBOARD, over evdev
+
+⭐⭐ **A real keypress reaches a consumer on Linux.** `src/kbscan.cyr` grows a `CYRIUS_TARGET_LINUX`
+arm reading `/dev/input/event*`. Proven end to end in a QEMU guest, through the *emulated input
+device* rather than by poking the consumer: QMP `send-key esc` → i8042 → Linux `atkbd` → evdev →
+bhumi → **HID usage 41 (0x29 = Esc)**, which ended aethersafha's unbounded session at frame 2729.
+⭐ **Negative-controlled**: the identical run with no key sent ran 20 s and never quit.
+
+### Added — the evdev arm
+
+- ⭐ **The code mapping was free.** Linux `KEY_*` base codes ARE AT/XT Set-1 make codes (`KEY_ESC` 1,
+  `KEY_Q` 0x10), so the existing `_bhumi_set1_to_hid` translates them with no second table.
+- ⚠ **NO capability probe.** The obvious design asks each node `EVIOCGBIT` whether it is a keyboard —
+  an ioctl plus a bitmask struct. Opening every node and keeping only `EV_KEY` records gets the same
+  answer with no ioctl, and a mouse contributes nothing until we want its buttons.
+- ⛔ **Autorepeat (value 2) is DROPPED.** bhumi's model is a press/release edge; forwarding a repeat as
+  another press delivers a key the user never pressed again, and a consumer diffing press/release
+  state would see an impossible double-down. Repeat is policy, and policy does not belong in a drain.
+- ⚠ A failed open is the normal case for most nodes, and for every node when the user is not in the
+  `input` group — silent by design, because a compositor logging 24 permission failures per start
+  trains its operator to ignore the log.
+- ⚠ Reading evdev does not consume from other readers, so this cannot steal keystrokes from a shell
+  sharing the console.
+
+### ⛔ NOT covered, and do not assume otherwise — the extended plane
+
+`_bhumi_set1_ext_to_hid` is keyed on **0xE0-prefixed** Set-1 codes and **evdev never emits a 0xE0
+prefix** — it gives flat numbers (`KEY_UP` is 103, not `E0 48`). **Arrows, RCtrl/RAlt/Meta,
+Home/End/PgUp/PgDn and Insert/Delete are dropped as unmapped.** A second table keyed on evdev's own
+numbering is the fix; until then the Linux keyboard is the base plane only.
+
+### Changed — `bhumi_input_poll` is four flat arms
+
+Same shape as `src/scanout.cyr`'s seam and for the same reason: `#ifndef CYRIUS_TARGET_AGNOS` also
+matches Linux, so a Linux arm cannot sit beside it without two definitions of one function.
+⚠ `prev` is now unused (it belonged to the HID-diff path) but stays in the signature — it is public
+API and a consumer's `bhumi_input_init(prev)` buffer is harmless.
+
+⚠ **Pointer input on Linux is NOT in this release.** `_bhumi_ptrscan` is still the `0` stub off agnos;
+evdev `EV_REL`/`EV_KEY` button records arrive on the same nodes this arm already opens, so it is a
+follow-on rather than new plumbing.
+
 ## [1.2.1] - 2026-08-12 — the Linux arm only worked on one driver, and one machine could not show it
 
 ⛔⛔ **1.2.0's fbdev arm displayed NOTHING on any driver whose fbdev emulation is a shadow buffer** —
