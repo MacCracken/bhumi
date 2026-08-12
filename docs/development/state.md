@@ -5,6 +5,16 @@
 
 ## Version
 
+**1.2.1** (2026-08-12) — ⛔ **1.2.0's Linux arm displayed nothing on shadow-buffer fbdevs.** It used
+`mmap` + stores, correct on amdgpu (real scanout memory) and silently a no-op on `simpledrm` and
+anything on `drm_fbdev_shmem`, where a store damages nothing and the shadow is never flushed.
+Now `pwrite` on every driver — one syscall for a full-screen present, per-row for partial blits.
+⚠ **One machine was the blind spot, not one weak test**: 1.2.0's oracle was already an external fd,
+and it still missed this because the second reader went through the same shadow. Found in QEMU.
+⚠ Operational constraint discovered with it: a shadow-buffer fbdev is flushed only while it is
+ACTIVELY DRIVEN — a guest booted `console=ttyS0` alone, or with `quiet`, never reaches scanout even
+via `pwrite`, because fbcon never does its first draw.
+
 **1.2.0** (2026-08-12) — ⭐⭐ **Linux is a real display target.** `src/scanout.cyr` grows an fbdev arm:
 geometry from sysfs, pixels via `mmap` of `/dev/fb0`. Verified at 2560x1440 through an
 independent-fd readback oracle. Charter change: [ADR 0003](../adr/0003-linux-is-a-real-display-target-fbdev-first.md);

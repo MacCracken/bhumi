@@ -2,6 +2,51 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.1] - 2026-08-12 — the Linux arm only worked on one driver, and one machine could not show it
+
+⛔⛔ **1.2.0's fbdev arm displayed NOTHING on any driver whose fbdev emulation is a shadow buffer** —
+which is most of them. It mapped `/dev/fb0` `MAP_SHARED` and stored into the mapping. That is correct
+on **amdgpu**, whose fbdev is backed by real scanout memory, and 1.2.0's proof was sound *for that
+driver*: 64/64 sentinel pixels through an independent fd on a 2560x1440 console. It is wrong
+everywhere else: on `simpledrm` (and anything on `drm_fbdev_shmem`) an mmap store lands in a shadow
+page that reaches scanout only when the fbdev is **damaged**, and a store damages nothing. Every
+syscall succeeds, `bhumi_output_present` returns 0, and the screen never changes.
+
+⚠ **A silent, total failure that a green self-check cannot see** — and note that 1.2.0's oracle was
+already the strict kind (an external fd, deliberately, so `MAP_PRIVATE` could not fool it). It still
+missed this, because the second reader went through the same shadow. **One machine was the blind spot,
+not one weak test.**
+
+### Fixed — `pwrite`, on every driver, and the mapping is gone
+
+⭐ Measured in a QEMU guest on `simpledrmdrmfb`, one variable at a time: a full-screen **mmap** fill
+left the framebuffer byte-identical to the firmware splash (0.011 non-black); the same pixels via
+**pwrite** rendered perfectly (1.000). ⛔ `fsync` is not an escape hatch — it returned 0 and flushed
+nothing; there is no cheap portable flush for an mmap'd fbdev.
+⛔ **And the first experiment nearly gave the wrong answer.** A probe that wrote the top half with
+`pwrite` and the bottom with `mmap` showed BOTH halves and read as "mmap works" — the pwrite had
+damaged the fbdev and the resulting flush carried the whole shadow, mmap'd pixels included. Two paths,
+one flush, one false conclusion. Re-running with mmap on *both* halves is what settled it.
+
+⭐ **One syscall for the common case.** A full-screen present at x=0 whose source pitch equals the
+framebuffer's is contiguous on both sides, so the whole frame goes in a single `pwrite` — 1 syscall
+instead of `rows` (1 rather than 1440 at 2560x1440). Partial and offset blits fall back to per-row.
+Short writes are looped, not treated as errors: abandoning the remainder would tear the frame in a way
+that looks like a renderer bug rather than an I/O one.
+⚠ Re-verified on amdgpu after the change — `fbdev-probe` still passes 64/64, so the fix is not a
+regression on the driver 1.2.0 was proven against.
+⚠ The MAP_PRIVATE warning that dominated 1.2.0's notes is retired along with the mapping; the lesson
+is kept in-file, because the stdlib's `mmap_file_rw` is still MAP_PRIVATE for whoever maps next.
+
+### Known operational constraint — the fbdev must be ACTIVELY DRIVEN
+
+⚠ Discovered while building the QEMU harness, and it is a property of the platform rather than a bug:
+userspace writes to a shadow-buffer fbdev are flushed only while something is driving it. A guest
+booted `console=ttyS0` alone, or with `quiet`, never lets fbcon do its first draw — and then **even
+`pwrite` never reaches scanout**. Both were measured with one variable changed. Consequence for
+consumers: bhumi's fbdev arm needs an active, driven VT, which is a second reason not to point it at a
+box whose console a display server has taken over.
+
 ## [1.2.0] - 2026-08-12 — Linux is a real display target, and there are pixels on the screen
 
 ⭐⭐⭐ **bhumi scans out on Linux.** `src/scanout.cyr` grows a `#ifdef CYRIUS_TARGET_LINUX` arm: geometry
