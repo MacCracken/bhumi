@@ -31,10 +31,25 @@ var BHUMI_PTR_RECORD = 16;
 #ifdef CYRIUS_TARGET_AGNOS
 fn _bhumi_ptrscan(buf, max): i64 { return sys_ptrscan(buf, max); }
 #endif
-#ifndef CYRIUS_TARGET_AGNOS
+#ifdef CYRIUS_TARGET_LINUX
+# ⭐ NOT A SYSCALL — the record is synthesised from the fold `_bhumi_lx_drain` (kbscan.cyr) maintains,
+# because on Linux the pointer and the keyboard arrive on the SAME evdev fds and a read consumes. See
+# the drain's own note. Everything above this line — `bhumi_ptr_decode`, the zero-suppression, the
+# s32 sign extension — is shared with agnos unchanged.
+fn _bhumi_ptrscan(buf, max): i64 {
+    if (max < BHUMI_PTR_RECORD) { return 0; }
+    return _bhumi_lx_ptr_take(buf);
+}
+#endif
+
+#ifdef CYRIUS_TARGET_MACOS
 # ⚠ INERT OFF-TARGET, and that is a real hazard rather than a convenience: a target-arm contract bug is
 # INVISIBLE here, because this arm answers "no pointer" and every assertion about the agnos arm passes
 # vacuously. The host dev build simply has no pointer; wayland would be a separate backend, not this.
+fn _bhumi_ptrscan(buf, max): i64 { return 0; }
+#endif
+
+#ifdef CYRIUS_TARGET_WIN
 fn _bhumi_ptrscan(buf, max): i64 { return 0; }
 #endif
 

@@ -5,6 +5,12 @@
 
 ## Version
 
+**1.4.0** (2026-08-12) — ⭐⭐ **Linux POINTER over evdev** (motion + buttons), sharing ONE drain with the
+keyboard because on Linux both arrive on the same fds and a read consumes. QEMU-proven through the
+emulated USB mouse: cursor moved by exactly the injected delta, click routed. ⛔ The device scan latched
+TWICE (scan-once, then retry-while-empty) and each latch silently lost a whole input device; it now
+rescans by index. ⚠ Unplug still unhandled.
+
 **1.3.0** (2026-08-12) — ⭐⭐ **Linux KEYBOARD over evdev.** `/dev/input/event*` -> `EV_KEY` -> Set-1 ->
 HID. Proven in QEMU through the emulated input device (QMP `send-key esc` -> usage 41), negative-
 controlled. ⛔ **Base plane only** — evdev emits no 0xE0 prefix, so arrows/RCtrl/Meta/Home/End/PgUp/

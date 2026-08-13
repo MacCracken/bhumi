@@ -2,6 +2,41 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] - 2026-08-12 — the Linux POINTER, and two latching bugs that hid it
+
+⭐⭐ **Mouse motion and buttons on Linux.** Proven in a QEMU guest through the *emulated USB mouse*:
+QMP `input-send-event` → evdev → bhumi → the consumer, which reported `pointer motion received --
+the cursor is live` and `pointer button click routed`. ⭐ **Quantitative, not just "it moved"**: the
+cursor started centred at (640,400), the injected deltas summed to (+400,+300), and the screendump put
+it at **(1040,700)** — exactly the delta.
+
+### Added — the pointer half of the evdev arm
+
+⛔⛔ **ONE DRAIN FEEDS BOTH STREAMS, BECAUSE ON LINUX IT MUST.** On agnos the keyboard (`kbscan #42`)
+and pointer (`ptrscan #98`) are separate syscalls over separate rings, so two drains are correct there.
+On Linux **they share one fd and a read CONSUMES** — whichever poll ran first would swallow the other's
+records and the second would see an idle device. `_bhumi_lx_drain` reads once; keys are QUEUED and the
+pointer is FOLDED, and each caller collects its own share.
+⭐ **The Linux arm owns only the fold.** `_bhumi_ptrscan` synthesises the same 16-byte record agnos's
+kernel returns, so `bhumi_ptr_decode` — pure, already unit-tested, zero-suppressed — is reused
+unchanged. Motion is a relative delta, so the useful unit is the sum since the last read; that is
+precisely what agnos's `hid_process_mouse_report` does for us there and bhumi does for itself here.
+⚠ Bit 0 is LEFT, because the consumer already assumes it (`input_btn_transitions(..., 1)`).
+⚠ `buttons_seen` is OR-only and is what catches a click that begins and ends inside one frame.
+
+### ⛔⛔ Fixed — the device scan LATCHED, twice, and each time it silently lost input
+
+- **(1) Scan-once.** The first poll happens milliseconds after boot, **before USB enumeration
+  finishes**, so with `-device usb-kbd` the scan found nothing, set its done-flag and never looked
+  again. Every keystroke lost, compositor reporting nothing wrong. Invisible on the i8042 keyboard,
+  which exists from reset — so the bug appeared only when the guest was given a *more realistic* device.
+- **(2) Retry-while-empty.** The obvious fix retried only while ZERO nodes were open. That still fails
+  the ordinary USB case: the **mouse enumerated first**, the count went above zero, the scan latched,
+  and the keyboard node was never opened. Measured exactly that — motion arriving, Esc never.
+⇒ Rescan on a fixed cadence regardless of count, with a per-index mask so a rescan opens only what is
+new. Late enumeration and hotplug share one mechanism; cost is 24 `open` attempts once per 60 polls.
+⚠ A node that DISAPPEARS is not reaped — unplugging is still unhandled.
+
 ## [1.3.0] - 2026-08-12 — the Linux KEYBOARD, over evdev
 
 ⭐⭐ **A real keypress reaches a consumer on Linux.** `src/kbscan.cyr` grows a `CYRIUS_TARGET_LINUX`
