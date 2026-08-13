@@ -337,6 +337,38 @@ fn main() {
     # No change -> no events.
     assert_eq(bhumi_kbd_diff(&cur, &cur, &evs, 8), 0, "identical reports -> no events");
 
+    # ----- kbscan.cyr — evdev EXTENDED key table (Linux arm, pure) -
+    # ⛔ These keys were ALL silently dropped before 1.4.1: Set-1 encodes them as a 0xE0 prefix plus a
+    # byte and `_bhumi_set1_ext_to_hid` is keyed on that byte, but evdev emits ONE FLAT CODE and never
+    # a prefix — so the existing table could not match on this arm.
+    test_group("kbscan.cyr — evdev extended keys");
+    assert_eq(_bhumi_evdev_ext_to_hid(103), 0x52, "KEY_UP    -> HID Up");
+    assert_eq(_bhumi_evdev_ext_to_hid(108), 0x51, "KEY_DOWN  -> HID Down");
+    assert_eq(_bhumi_evdev_ext_to_hid(105), 0x50, "KEY_LEFT  -> HID Left");
+    assert_eq(_bhumi_evdev_ext_to_hid(106), 0x4F, "KEY_RIGHT -> HID Right");
+    assert_eq(_bhumi_evdev_ext_to_hid(102), 0x4A, "KEY_HOME  -> HID Home");
+    assert_eq(_bhumi_evdev_ext_to_hid(107), 0x4D, "KEY_END   -> HID End");
+    assert_eq(_bhumi_evdev_ext_to_hid(104), 0x4B, "KEY_PAGEUP   -> HID PgUp");
+    assert_eq(_bhumi_evdev_ext_to_hid(109), 0x4E, "KEY_PAGEDOWN -> HID PgDn");
+    assert_eq(_bhumi_evdev_ext_to_hid(110), 0x49, "KEY_INSERT   -> HID Insert");
+    assert_eq(_bhumi_evdev_ext_to_hid(111), 0x4C, "KEY_DELETE   -> HID Delete");
+    assert_eq(_bhumi_evdev_ext_to_hid(97),  0xE4, "KEY_RIGHTCTRL -> HID RCtrl");
+    assert_eq(_bhumi_evdev_ext_to_hid(100), 0xE6, "KEY_RIGHTALT  -> HID RAlt");
+    assert_eq(_bhumi_evdev_ext_to_hid(125), 0xE3, "KEY_LEFTMETA  -> HID LGUI");
+    assert_eq(_bhumi_evdev_ext_to_hid(126), 0xE7, "KEY_RIGHTMETA -> HID RGUI");
+    assert_eq(_bhumi_evdev_ext_to_hid(96),  0x58, "KEY_KPENTER   -> HID KP Enter");
+    assert_eq(_bhumi_evdev_ext_to_hid(0),   0,    "not an extended key -> 0");
+    assert_eq(_bhumi_evdev_ext_to_hid(30),  0,    "a BASE-plane code is not this table's -> 0");
+    # ⛔⛔ THE LOAD-BEARING ASSERTION: the two tables must be DISJOINT. If the base table answered
+    # anything for an extended code, these keys would be MIS-mapped rather than dropped — a wrong key
+    # delivered, which is far worse than a missing one and invisible in a log.
+    assert_eq(_bhumi_set1_to_hid(103), 0, "base table declines KEY_UP (tables are disjoint)");
+    assert_eq(_bhumi_set1_to_hid(105), 0, "base table declines KEY_LEFT");
+    assert_eq(_bhumi_set1_to_hid(125), 0, "base table declines KEY_LEFTMETA");
+    # And the base plane still answers, so adding the fallback did not shadow it.
+    assert_eq(_bhumi_set1_to_hid(1),  0x29, "base still maps KEY_ESC");
+    assert_eq(_bhumi_set1_to_hid(30), 0x04, "base still maps KEY_A");
+
     # ----- kbscan.cyr — init + poll (host stub) -------------------
     test_group("kbscan.cyr — bhumi_input_init / poll");
     var pv[8];

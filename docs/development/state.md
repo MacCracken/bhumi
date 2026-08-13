@@ -5,6 +5,11 @@
 
 ## Version
 
+**1.4.1** (2026-08-12) — ⭐ **Extended keys on Linux** (arrows, Home/End/PgUp/PgDn, Ins/Del, RCtrl/RAlt,
+Meta, Menu) via `_bhumi_evdev_ext_to_hid`, keyed on evdev's flat numbering — Set-1's 0xE0-prefixed table
+could never match here. QEMU-proven: usages 82/80/74/76/41. ⚠ The tables are asserted DISJOINT, because
+an overlap would MIS-map rather than drop.
+
 **1.4.0** (2026-08-12) — ⭐⭐ **Linux POINTER over evdev** (motion + buttons), sharing ONE drain with the
 keyboard because on Linux both arrive on the same fds and a read consumes. QEMU-proven through the
 emulated USB mouse: cursor moved by exactly the injected delta, click routed. ⛔ The device scan latched

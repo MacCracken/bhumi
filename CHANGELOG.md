@@ -2,6 +2,30 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.1] - 2026-08-12 — the extended keys, which evdev numbers its own way
+
+⭐ **Arrows, Home/End/PgUp/PgDn, Insert/Delete, RCtrl/RAlt, Meta and Menu now arrive on Linux.** All of
+them were silently dropped through 1.3.0-1.4.0. Verified in QEMU: `up left home delete esc` produced
+usages **82 80 74 76 41** — exactly HID Up, Left, Home, Delete, Esc.
+
+⛔ **Why the existing table could never have worked here.** Linux `KEY_*` base codes ARE Set-1 make
+codes, which is why the base plane needed no work at all — and that success is exactly what made the
+gap easy to miss. The extended plane is where the equivalence stops: Set-1 encodes those keys as a
+**0xE0 PREFIX plus a byte** (Up is `E0 48`) and `_bhumi_set1_ext_to_hid` is keyed on that second byte,
+but **evdev never emits a prefix** — it gives one flat number (`KEY_UP` is 103). So the table could not
+match on this arm no matter what was pressed.
+
+⇒ `_bhumi_evdev_ext_to_hid`, keyed on evdev's own numbering, tried after the base table declines.
+⚠ It lives inside the Linux arm, not beside the Set-1 tables agnos shares, because it is not Set-1.
+
+### ⭐ The load-bearing test is DISJOINTNESS, not the mappings
+
+22 new assertions (288 → **310**), and the ones that matter most assert the base table answers **0**
+for `KEY_UP`/`KEY_LEFT`/`KEY_LEFTMETA`. Had it answered anything, these keys would be **MIS-mapped
+rather than dropped** — a wrong key delivered, which is far worse than a missing one and invisible in
+a log. The base table tops out at 0x58 (F12), which is why the fallback is safe; that was checked
+before being relied on, not assumed.
+
 ## [1.4.0] - 2026-08-12 — the Linux POINTER, and two latching bugs that hid it
 
 ⭐⭐ **Mouse motion and buttons on Linux.** Proven in a QEMU guest through the *emulated USB mouse*:
