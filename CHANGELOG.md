@@ -2,6 +2,12 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.2] - 2026-08-17
+
+### Changed
+
+- cyrius pin 6.5.20 -> **6.5.27**, matching the rest of the AGNOS desktop stack. Artifact byte-identical.
+
 ## [1.4.1] - 2026-08-12 — the extended keys, which evdev numbers its own way
 
 ⭐ **Arrows, Home/End/PgUp/PgDn, Insert/Delete, RCtrl/RAlt, Meta and Menu now arrive on Linux.** All of
