@@ -2,6 +2,42 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.3] - 2026-08-27 — the mouse wheel reaches userland
+
+### Added
+
+- **`BHUMI_EV_SCROLL` (kind 3)** — bits 0-23 carry the wheel delta as s24, summed since the last
+  drain, positive = wheel-up (the sign agnos reports in HID report byte [3]).
+  `bhumi_scroll_event(wheel)` / `bhumi_scroll_delta(ev)`.
+  ⚠ **A separate kind, not a field on `BHUMI_EV_MOTION`.** A consumer that folded the two would drag
+  the cursor down the screen on every notch; one that ignores this kind behaves exactly as before.
+- **`bhumi_ptr_record_ok(n)`** — is a kernel record of `n` bytes usable. See below.
+
+### Changed
+
+- **`bhumi_pointer_poll` asks agnos `#98` for 20 bytes and accepts 16.** agnos 1.56.49 grew the
+  ptrscan record opt-in per call (`+16 s32 wheel`), so a newer kernel supplies the wheel and an older
+  one writes the 16 bytes it always did.
+- **`bhumi_ptr_decode(rec, n, out, max_ev)`** takes the record length. The wheel at `+16` is read only
+  when the kernel actually wrote 20 bytes.
+
+⛔ **Asking for 20 and DEMANDING 20 are different, and the difference is the mouse.** A pre-1.56.49
+kernel returns 16; rejecting that would stop pointer input entirely rather than merely losing the
+scroll. The wheel is an optional field, so its absence is a missing field and not a failed read.
+
+⚠ The wheel slot is zeroed before every call. The frame slot is uninitialised and an older kernel
+never writes `+16`, so without that a kernel with no wheel support would appear to report one.
+
+### Testing
+
+325 assertions (was 320). The wheel decode, its sign round-trip through the s24 pack, zero
+suppression, and the shared event budget across all three kinds.
+
+⛔ **`bhumi_ptr_record_ok` exists because the rule it encodes was untestable where it lived.** The
+accept-16 comparison sat inside `bhumi_pointer_poll`, behind a syscall no host suite can drive:
+tightening it to reject 16 left **320/320 green** for a change that would have killed the mouse on
+every older kernel. Mutation-verified now — the same tightening fails.
+
 ## [1.4.2] - 2026-08-17
 
 ### Changed

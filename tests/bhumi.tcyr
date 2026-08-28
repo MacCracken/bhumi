@@ -681,26 +681,63 @@ fn main() {
     test_group("ptrscan.cyr — record decode is zero-suppressed");
     # ⛔⛔ THE SAME BYTES-NOT-WORDS TRAP, IN THE TEST THAT GUARDS THE DECODER. `var prec[2]` is 2 BYTES,
     # and `store32(&prec + 12, ...)` writes bytes 12-15 of it; `var ptev[4]` is 4 BYTES while
-    # `bhumi_ptr_decode(&prec, &ptev, 4)` is authorised to write 4 events = 32. Roughly 40 bytes of this
+    # `bhumi_ptr_decode(&prec, 16, &ptev, 4)` is authorised to write 4 events = 32. Roughly 40 bytes of this
     # frame — other locals and the return address — were being overwritten, and the asserts passed anyway,
     # which is the worst version of this bug: a green test standing on a smashed stack.
     var prec[16];                      # 16 BYTES: exactly one kernel ptrscan record
     var ptev[32];                      # 32 BYTES: room for the 4 events decode is allowed to write
     store32(&prec + 0, 5); store32(&prec + 4, 0 - 3 & 0xFFFFFFFF);
     store32(&prec + 8, 0); store32(&prec + 12, 0);
-    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 1, "motion only -> one event");
+    assert_eq(bhumi_ptr_decode(&prec, 16, &ptev, 4), 1, "motion only -> one event");
     assert_eq(bhumi_motion_dx(load64(&ptev)), 5, "decoded dx");
     assert_eq(bhumi_motion_dy(load64(&ptev)), 0 - 3, "decoded dy is NEGATIVE (up)");
     store32(&prec + 8, 1); store32(&prec + 12, 1);
-    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 2, "motion + button -> two events");
+    assert_eq(bhumi_ptr_decode(&prec, 16, &ptev, 4), 2, "motion + button -> two events");
     assert_eq(bhumi_ev_kind(load64(&ptev + 8)), BhumiEvKind.BHUMI_EV_BUTTON, "second event is the button");
     store32(&prec + 0, 0); store32(&prec + 4, 0);
     store32(&prec + 8, 0); store32(&prec + 12, 0);
-    assert_eq(bhumi_ptr_decode(&prec, &ptev, 4), 0, "a wholly idle record emits NOTHING");
+    assert_eq(bhumi_ptr_decode(&prec, 16, &ptev, 4), 0, "a wholly idle record emits NOTHING");
     # ⚠ The shared budget: a decode must never write past what the caller allowed.
     store32(&prec + 0, 5); store32(&prec + 8, 1);
-    assert_eq(bhumi_ptr_decode(&prec, &ptev, 1), 1, "max_ev=1 caps the write at one event");
-    assert_eq(bhumi_ptr_decode(&prec, &ptev, 0), 0, "max_ev=0 writes nothing");
+    assert_eq(bhumi_ptr_decode(&prec, 16, &ptev, 1), 1, "max_ev=1 caps the write at one event");
+    assert_eq(bhumi_ptr_decode(&prec, 16, &ptev, 0), 0, "max_ev=0 writes nothing");
+
+    # ---- ⭐ THE WHEEL (1.4.3), and the compatibility that matters more than the feature ----------
+    # ⛔⛔ THE COMPATIBILITY RULE ITSELF, pinned where a mutation can reach it. bhumi asks agnos for 20
+    # bytes and MUST accept 16: a pre-1.56.49 kernel writes 16, and demanding 20 back would stop
+    # pointer input entirely — trading "no scrolling" for "no mouse". This predicate exists because the
+    # comparison used to live inside `bhumi_pointer_poll`, behind a syscall no host suite can drive,
+    # where tightening it left all 320 assertions green.
+    assert_eq(bhumi_ptr_record_ok(16), 1, "a 16-byte record from an OLD kernel is usable");
+    assert_eq(bhumi_ptr_record_ok(20), 1, "...and so is a 20-byte one from a new kernel");
+    assert_eq(bhumi_ptr_record_ok(15), 0, "a short record is not");
+    assert_eq(bhumi_ptr_record_ok(0), 0, "idle is not");
+    assert_eq(bhumi_ptr_record_ok(0 - 1), 0, "refused is not");
+    # ⛔⛔ A 16-BYTE RECORD MUST NOT PRODUCE A SCROLL, EVEN WITH GARBAGE AT +16. agnos grew `#98`'s
+    # record OPT-IN per call, so a pre-1.56.49 kernel writes 16 bytes and leaves +16 untouched — which
+    # on a stack frame is whatever was there before. If the decoder read it anyway, an old kernel would
+    # appear to scroll at random. `n` is what the kernel WROTE, and it is the gate.
+    var wrec[24];                      # 24 BYTES: a 20-byte record with room to spare
+    store32(&wrec + 0, 0); store32(&wrec + 4, 0);
+    store32(&wrec + 8, 0); store32(&wrec + 12, 0);
+    store32(&wrec + 16, 7);            # a plausible-looking wheel value sitting at +16
+    assert_eq(bhumi_ptr_decode(&wrec, 16, &ptev, 4), 0, "n=16 ignores +16 entirely — no phantom scroll");
+    assert_eq(bhumi_ptr_decode(&wrec, 20, &ptev, 4), 1, "n=20 decodes the wheel");
+    assert_eq(bhumi_ev_kind(load64(&ptev)), BhumiEvKind.BHUMI_EV_SCROLL, "...as a SCROLL event");
+    assert_eq(bhumi_scroll_delta(load64(&ptev)), 7, "...carrying the delta");
+    # ⚠ A SCROLL IS NOT A MOTION. A consumer that folded the two would drag the cursor on every notch.
+    assert_eq(bhumi_ev_kind(load64(&ptev)) == BhumiEvKind.BHUMI_EV_MOTION, 0, "a scroll is not motion");
+    # Negative — wheel-down. The s24 pack/unpack round trip is where a sign is lost.
+    store32(&wrec + 16, (0 - 3) & 0xFFFFFFFF);
+    assert_eq(bhumi_ptr_decode(&wrec, 20, &ptev, 4), 1, "a negative wheel still decodes");
+    assert_eq(bhumi_scroll_delta(load64(&ptev)), 0 - 3, "...with its sign intact");
+    # Zero-suppressed like the other two kinds.
+    store32(&wrec + 16, 0);
+    assert_eq(bhumi_ptr_decode(&wrec, 20, &ptev, 4), 0, "a zero wheel emits nothing");
+    # ⚠ And it shares the budget: three kinds, one array, one cap.
+    store32(&wrec + 0, 5); store32(&wrec + 8, 1); store32(&wrec + 16, 2);
+    assert_eq(bhumi_ptr_decode(&wrec, 20, &ptev, 4), 3, "motion + button + scroll -> three events");
+    assert_eq(bhumi_ptr_decode(&wrec, 20, &ptev, 2), 2, "...capped by the shared budget");
 
     return assert_summary();
 }

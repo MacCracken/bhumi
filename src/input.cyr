@@ -102,6 +102,12 @@ enum BhumiEvKind {
     BHUMI_EV_KEY    = 0;   # bits 0-8 as above. Kind 0 keeps legacy events identical.
     BHUMI_EV_MOTION = 1;   # bits 0-23 dx (s24), bits 24-47 dy (s24, POSITIVE = DOWN)
     BHUMI_EV_BUTTON = 2;   # bits 0-7 buttons (current level), bits 8-15 buttons_seen (OR since drain)
+    # ⭐ 1.4.3 — the wheel. bits 0-23 wheel delta (s24), summed since the last drain, POSITIVE = away
+    # from the user (wheel-up), matching the sign agnos reports in byte [3] of the HID report.
+    # ⚠ A SEPARATE KIND, not a field on MOTION. A scroll is not a cursor move: a consumer that treated
+    # it as one would drag the pointer down the screen on every notch, and one that ignores this kind
+    # keeps working exactly as before rather than mis-reading a motion.
+    BHUMI_EV_SCROLL = 3;
 }
 
 fn bhumi_ev_kind(ev): i64 { return (ev >> 56) & 0xF; }
@@ -125,6 +131,12 @@ fn bhumi_motion_event(dx, dy): i64 {
 }
 fn bhumi_motion_dx(ev): i64 { return bhumi__s24_unpack(ev); }
 fn bhumi_motion_dy(ev): i64 { return bhumi__s24_unpack(ev >> 24); }
+
+fn bhumi_scroll_event(wheel): i64 {
+    return (BhumiEvKind.BHUMI_EV_SCROLL << 56) | bhumi__s24_pack(wheel);
+}
+
+fn bhumi_scroll_delta(ev): i64 { return bhumi__s24_unpack(ev & 0xFFFFFF); }
 
 fn bhumi_button_event(buttons, seen): i64 {
     return (BhumiEvKind.BHUMI_EV_BUTTON << 56) | ((seen & 0xFF) << 8) | (buttons & 0xFF);
