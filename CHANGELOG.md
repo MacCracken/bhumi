@@ -693,3 +693,12 @@ acceptance is the downstream step (see roadmap M1).
 - Architecture map in `src/main.cyr`: planned `output` (agnodrm scanout) /
   `input` (kernel `hid_poll`) / `seat` (sigil/kavach gate) / `backend`
   (assembled handle) modules.
+
+## [Unreleased]
+
+## [1.4.4] - 2026-09-11
+
+### Changed
+
+- **Toolchain `6.5.27` → `6.6.2`.** No source change; the value form needed none.
+  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.

@@ -653,7 +653,7 @@ fn main() {
     assert_eq(bhumi_ev_is_key(bhumi_button_event(1, 1)), 0, "a button event is NOT a key");
     # The exact value that would quit the compositor if the tag were missing.
     assert_eq(bhumi_ev_kind(bhumi_motion_event(0, 41)), BhumiEvKind.BHUMI_EV_MOTION,
-              "dy=41 is tagged MOTION, not read as HID 0x29 (Escape)");
+      "dy=41 is tagged MOTION, not read as HID 0x29 (Escape)");
 
     test_group("ptrscan.cyr — signed motion survives the pack/unpack round trip");
     assert_eq(bhumi_motion_dx(bhumi_motion_event(7, 9)), 7, "dx positive");
