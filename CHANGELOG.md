@@ -2,6 +2,90 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [1.4.5] - 2026-09-26
+
+### Changed
+
+- **Toolchain `6.6.2` → `6.6.6`.** No source change. `dist/bhumi.cyr` differs from 1.4.4 only in its
+  version line and `dist/bhumi.deps` is unchanged, so the consumer floor does not move: aethersafha,
+  on tag 1.4.4 and pinned to 6.6.2, can take 1.4.5 without a pin change.
+- **`lib/` re-synced to the 6.6.6 stdlib** (`cyrius lib sync --full`) and verified byte-identical to
+  the installed snapshot: 111 files, 66 changed and 4 new (`alloc_cx`, `async_macos`, `boxed`,
+  `hashseed`). The folded distlibs move to the tags the 6.6.6 snapshot carries:
+
+  | Lib | 1.4.4 | 1.4.5 |
+  |---|---|---|
+  | sigil | 3.12.7 | 3.12.18 |
+  | sankoch | 2.7.7 | 2.8.0 |
+  | patra | 1.13.0 | 1.14.3 |
+  | sakshi | 2.4.10 | 2.5.2 |
+  | sandhi | 1.9.9 | 1.9.17 |
+  | bayan | 1.4.1 | 1.5.6 |
+  | mabda | 4.0.8 | 4.1.4 |
+  | yukti | 2.3.2 | 2.3.11 |
+  | niyama | 1.0.6 | 1.0.11 |
+  | ganita | 1.0.4 | 1.2.6 |
+  | vani | 1.1.3 | 1.2.5 |
+  | yantra | 1.0.2 | 1.0.5 |
+
+  ⚠ **The 1.4.2 and 1.4.4 bumps moved the pin but not these twelve.** Each refreshed only a handful
+  of stdlib files, so every fold stayed as it was last vendored, under pins 6.4.71 to 6.5.20,
+  behind even 6.6.2's own snapshot, and every build warned
+  `./lib/ shadows version-pinned …/6.6.2/lib — 12 bundled lib(s) differ`. Nothing bhumi builds
+  includes any of them (the ten declared leaves pull in none), so no artifact was affected. The
+  warning is gone.
+
+### Fixed
+
+- **`--agnos` builds are warning-free.** Under 6.6.2 all five warned
+  `undefined function '_agnos_getenv'`: the agnos `getenv` in `lib/io.cyr` forward-referenced
+  `lib/args_agnos.cyr`, which nothing included, leaving a stub that traps if called. bhumi never calls
+  `getenv`, so it was latent. 6.6.6's `io.cyr` includes its peer directly.
+
+### Testing
+
+- At 6.6.6: `cyrius test` **325/325** (unchanged), `cyrius fuzz` passes, `cyrius bench` runs, and
+  `cyrius distlib` + `scripts/api-surface.sh` finds all 71 functions and 16 constants. All six
+  programs build for Linux and the five CI programs for `--agnos`, with no warnings.
+  `cyrius fmt --check` is clean.
+- ⚠ `cyrius audit` exits 1 on both pins, on the same two findings: 56 undocumented public fns, and
+  cyrlint's untracked deferrals, which audit counts as lint warnings. Neither is a CI gate here.
+  6.6.6's cyrlint adds one deferral, the `NOT yet` at `src/output.cyr:12` (it folds case since
+  6.6.5). That header comment is stale anyway: it predates the scanout path and says `blit#39` does
+  not exist. It is left for its own change.
+- Binaries grow **+4.6 to +8.8 KB**. With DCE off (the default) most of that is unreachable stdlib:
+  +6.5 KB in each Linux binary, +7.2 KB in each agnos one. With `CYRIUS_DCE=1`,
+  `backend-demo` goes 42,192 → 42,848 B (host) and 32,472 → 33,000 B (`--agnos`).
+
+### Performance
+
+Toolchain-only. Three interleaved rounds per side on one host, the 1.4.4 tree at 6.6.2 against this
+tree at 6.6.6; medians:
+
+| Benchmark | 6.6.2 | 6.6.6 | Δ |
+|---|---:|---:|---:|
+| `pattern_bars` 1280x720 | 21.469 ms | 21.868 ms | +1.9% |
+| `pattern_xor` 1280x720 | 18.696 ms | 18.895 ms | +1.1% |
+| `fb_clear` 1280x720 | 946.677 µs | 945.497 µs | noise |
+
+The two pattern paints are slower in every round; their ranges do not overlap. `fb_clear`'s 6.6.2
+rounds spread 942–963 µs, wider than the change.
+
+⚠ **The nanosecond rows do not compare across these pins.** 6.6.5's `bench.cyr` rounds per-op
+values half-up where 6.6.2 truncated them, which alone moves a row by up to 1 ns. `fb_set` reads
+12 → 13 ns, but 6.6.6 measures it at 12.879 ns, which 6.6.2 would have printed as 12. `kbd_diff`
+(53 → 54 ns) and `seat_can` (9 ns on both) moved by no more than that. 6.6.6 also prints a
+`[per op in ps: …]` line under each of those rows.
+
+## [1.4.4] - 2026-09-11
+
+### Changed
+
+- **Toolchain `6.5.27` → `6.6.2`.** No source change; the value form needed none.
+  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.
+
 ## [1.4.3] - 2026-08-27 — the mouse wheel reaches userland
 
 ### Added
@@ -693,12 +777,3 @@ acceptance is the downstream step (see roadmap M1).
 - Architecture map in `src/main.cyr`: planned `output` (agnodrm scanout) /
   `input` (kernel `hid_poll`) / `seat` (sigil/kavach gate) / `backend`
   (assembled handle) modules.
-
-## [Unreleased]
-
-## [1.4.4] - 2026-09-11
-
-### Changed
-
-- **Toolchain `6.5.27` → `6.6.2`.** No source change; the value form needed none.
-  Build, tests, and any bench/fuzz/distlib target the repo ships re-verified at the new pin.

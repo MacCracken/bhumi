@@ -5,6 +5,23 @@
 
 ## Version
 
+**1.4.5** (2026-09-26) — Toolchain **6.6.2 → 6.6.6**, and `lib/` re-synced to the 6.6.6 snapshot
+(`cyrius lib sync --full`, byte-identical, 111 files). No source change: `dist/bhumi.cyr` differs from
+1.4.4 only in its version line, so a consumer can take it without moving its own pin. ⚠ 1.4.2 and 1.4.4
+bumped the pin WITHOUT the `--full` sync this file prescribes, which left 12 folded libs (sigil 3.12.7,
+sankoch 2.7.7, …) stale and a shadow-lib warning on every build; none is reachable from bhumi's leaves.
+The `--agnos` `_agnos_getenv` warning is gone too. 325/325; the pattern paints run ~1–2% slower,
+toolchain-only. ⚠ Bench ns rows are not comparable with pre-6.6.5 runs: `_ns` now rounds half-up.
+
+**1.4.4** (2026-09-11) — Toolchain 6.5.27 → 6.6.2; the `Result`/`Option` value form needed no source change.
+
+**1.4.3** (2026-08-27) — ⭐ **Mouse wheel**: `BHUMI_EV_SCROLL` (kind 3, s24 delta, positive = wheel-up),
+a separate kind so a consumer that ignores it behaves as before. `bhumi_pointer_poll` asks agnos `#98`
+for 20 bytes and ACCEPTS 16 (`bhumi_ptr_record_ok`), so a pre-1.56.49 kernel loses only the wheel,
+not the mouse.
+
+**1.4.2** (2026-08-17) — Toolchain 6.5.20 → 6.5.27. Artifact byte-identical.
+
 **1.4.1** (2026-08-12) — ⭐ **Extended keys on Linux** (arrows, Home/End/PgUp/PgDn, Ins/Del, RCtrl/RAlt,
 Meta, Menu) via `_bhumi_evdev_ext_to_hid`, keyed on evdev's flat numbering — Set-1's 0xE0-prefixed table
 could never match here. QEMU-proven: usages 82/80/74/76/41. ⚠ The tables are asserted DISJOINT, because
@@ -48,10 +65,14 @@ lags its own repo by five versions is read as current by the next session; refre
 
 ## Toolchain
 
-- **Cyrius pin**: `6.5.20` (in `cyrius.cyml [package].cyrius`), matching the active toolchain.
+- **Cyrius pin**: `6.6.6` (in `cyrius.cyml [package].cyrius`), matching the active toolchain.
   ⚠ Was recorded here as `6.3.34` while the manifest said `6.5.13` and `cycc` was `6.5.20` — three
   different answers to one question. **Read the manifest, not this line**, and re-sync both at a cut.
-- `cyrius lib sync --full` is required after a pin bump (107-file snapshot).
+  ⚠ It then said `6.5.20` through two more bumps, while the manifest reached `6.6.2`.
+- `cyrius lib sync --full` is required after a pin bump (111-file snapshot at 6.6.6).
+  ⛔ **Skipping it is silent in CI.** 1.4.2 and 1.4.4 did, and twelve folds fell behind the pinned
+  snapshot. The tell is `warning: ./lib/ shadows version-pinned …` on any build; the check is
+  `diff -r lib ~/.cyrius/versions/<pin>/lib`, which must print nothing.
 - **`[deps].stdlib` is unchanged by the Linux arm** — `sys_open`/`sys_read`/`sys_close` come from
   `syscalls` and `memcpy` from `string`, both already declared. ⛔ `lib/mmap.cyr` is deliberately NOT
   used: its `mmap_file_rw` passes **MAP_PRIVATE**, which on a framebuffer writes to a copy-on-write
@@ -137,7 +158,7 @@ DRM/KMS as a second backend, evdev input, and a Linux seat notion — is tracked
 
 - `tests/bhumi.tcyr` — primary suite: smoke + `output` / `pattern` / `scanout` /
   `input` / `kbscan` / `ptrscan` / `seat` / `backend` + the Linux fbdev arm's pure half + edge cases
-  (**288 assertions** at 1.2.0, passes on `cyrius test`). ⛔ **No test may call `bhumi_output_present`
+  (**325 assertions** at 1.4.5, passes on `cyrius test`). ⛔ **No test may call `bhumi_output_present`
   with a real fb** — on Linux that writes to the physical display; the suite asserts the seat gate
   predicate instead, and a before/after `dd` of `/dev/fb0` confirms `cyrius test` leaves it
   byte-identical. Source-includes `src/main.cyr` (see
@@ -160,7 +181,8 @@ Direct (declared in `cyrius.cyml`):
 
 ## Consumers
 
-**aethersafha 0.13.1** (compositor; was recorded here as 0.1.0) — wired: instantiates bhumi as its platform
+**aethersafha 0.16.25** (compositor; takes bhumi **tag 1.4.4** via `[deps.bhumi]` → `dist/bhumi.cyr`, on
+its own cyrius pin 6.6.2; was recorded here as 0.1.0, then 0.13.1) — wired: instantiates bhumi as its platform
 backend (output/input/seat) via `bhumi_backend_open` and drives a frame loop
 through the single handle. The first live downstream consumer; closed the last
 v1.0 criterion.

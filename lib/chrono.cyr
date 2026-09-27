@@ -1,37 +1,104 @@
 # chrono.cyr — time and duration utilities
 # Usage: include "lib/chrono.cyr"
 # Requires: syscalls.cyr (for clock_gettime)
+# v6.5.39: atomic.cyr, for the aarch64 release fence on the lazy-init publish below.
+# ⚠ MEASURED ZERO COST: alloc.cyr already pulls atomic.cyr and includes are once-only, so
+# adding this changed NOTHING — A/B on tests/tcyr/stdlib/chrono.tcyr is byte-identical on
+# x86-linux, PE and the bare-metal kernel fixture. The proposal listed the include cost as
+# part of the decision; it is not.
+include "lib/atomic.cyr"
 
 var CLOCK_REALTIME = 0;
 var CLOCK_MONOTONIC = 1;
 
+# Windows monotonic nanoseconds from QueryPerformanceCounter.
+#
+# ⛔ v6.6.5 — THE TWO ROUTES ARE SPELLED RAW HERE ON PURPOSE. The first cut of this bite
+# called `sys_qpc_ns()` from lib/syscalls_windows.cyr, which made chrono.cyr STOP BEING
+# SELF-SUFFICIENT: this file includes only atomic.cyr, every other clock arm in it is a
+# bare `syscall(...)` builtin, and a consumer whose `[deps] stdlib` lists "chrono" without
+# "syscalls" therefore stopped building for PE with `undefined function 'sys_qpc_ns'`.
+# Nothing in-repo caught it (every in-repo consumer pulls lib/syscalls.cyr) and the
+# vendoring closure cannot rescue it either — `_distlib_union_declared_stdlib` derives its
+# edges from literal `include "lib/X.cyr"` lines, and there is no chrono→syscalls edge to
+# derive. Pinned by tests/gates/toolchain/bench_timer_floor_measured.sh axis E, which
+# cross-builds a chrono-only consumer for PE. CHANGELOG [6.6.5].
+#
+# 0xF038 = 61496 → kernel32!QueryPerformanceCounter(LARGE_INTEGER*)
+# 0xF039 = 61497 → kernel32!QueryPerformanceFrequency(LARGE_INTEGER*)
+# Both return the Win32 BOOL and write a 64-bit count at the pointer argument.
+#
+# The ns conversion is SPLIT so it cannot overflow: a raw `count * 1e9` wraps i64 after
+# ~29 years of uptime at a 10 MHz counter. A non-positive frequency (impossible on any
+# supported Windows) falls back to GetTickCount64 × 1e6 — coarse beats wrong-scaled and
+# silent. Mirrors lib/syscalls_windows.cyr's sys_qpc_ns; the two are pinned to agree by
+# the same gate axis.
+var _chrono_qpf_hz = 0;
+fn _chrono_qpc_ns(): i64 {
+    #ifdef CYRIUS_TARGET_WIN
+    var c[16];
+    if (_chrono_qpf_hz == 0) {
+        store64(&c, 0);
+        syscall(61497, &c);                  # QueryPerformanceFrequency(&hz)
+        _chrono_qpf_hz = load64(&c);
+    }
+    if (_chrono_qpf_hz <= 0) {
+        return syscall(228, 1, &c) * 1000000;    # GetTickCount64 ms -> ns
+    }
+    store64(&c, 0);
+    syscall(61496, &c);                      # QueryPerformanceCounter(&count)
+    var t = load64(&c);
+    return (t / _chrono_qpf_hz) * 1000000000 + ((t % _chrono_qpf_hz) * 1000000000) / _chrono_qpf_hz;
+    #endif
+    return 0;
+}
+
 # Get current time in nanoseconds (monotonic clock).
-# v6.2.6: agnos binds the monotonic clock to uptime_ms (#40, since kernel
-# 1.43.x) — ms since boot, scaled to ns. The low 6 digits are zero at the
-# 100 Hz / 10 ms tick resolution (same sub-tick-zero shape as the wall-clock
-# clock_epoch_ns note). (Was a fixed-zero stub through v6.2.5, predicated on
-# the obsolete "no monotonic syscall in the frozen 0-33 surface" assumption —
-# 228=clock_gettime is out of range, but #40 always was the agnos path.)
+#
+# ⛔ v6.6.1 — AGNOS NOW READS #95 (uptime_us, rdtsc), NOT #40 (uptime_ms, timer_ticks).
+# A foreground `run` program on AGNOS executes with IF CLEARED — only /bin/agnsh gets IF=1 —
+# so the 100 Hz timer ISR never fires, `timer_ticks` never advances, and #40 is FROZEN for
+# that program's entire run. Anything timing itself with it measured exactly zero, forever,
+# with no error. #95 is read via rdtsc and needs no interrupts, so it is the only correct
+# monotonic source on that path.
+#
+# ⚠ The trap was already documented TWO FILES AWAY, above the wrapper this function did not
+# call (`lib/syscalls_x86_64_agnos.cyr`, sys_uptime_us): "*#95 is the only correct clock
+# there*". AGNOS's own ABI note records that it cost two iron burns on the 3D arc's rung-10
+# gate before it was understood. The general-purpose clock still walked into it for four
+# minors. Filed 2026-09-07 from sakshi's 2.5.0 P(-1) audit.
+#
+# v6.2.6 bound it to #40 and that was correct WHEN WRITTEN — #95 did not exist yet.
+# Resolution improves as a side effect: µs rather than the 10 ms tick.
 fn clock_now_ns(): i64 {
     #ifdef CYRIUS_TARGET_AGNOS
-    return sys_uptime_ms() * 1000000;
+    return sys_uptime_us() * 1000;
     #endif
     #ifndef CYRIUS_TARGET_AGNOS
     var ts[16];
     #ifdef CYRIUS_TARGET_MACOS
     # v6.2.13 (issue 2026-06-16): the **arm64** Mach-O backend routes syscall(228)
     # to libSystem `_clock_gettime_nsec_np(clock_id)`, which RETURNS the ns count
-    # in the return register — it does NOT fill the `&ts` timespec — and Darwin's
-    # CLOCK_MONOTONIC is **6**, not Linux's 1. So take the return value (ns) with
-    # the Darwin id; `&ts` is just the 3rd-arg placeholder the route expects.
+    # in the return register — it does NOT fill the `&ts` timespec. So take the
+    # return value (ns) with the Darwin id; `&ts` is just the 3rd-arg placeholder
+    # the route expects.
     # (x86-macOS does not route 228 → clock stays dead there; that arch is HELD.)
-    return syscall(228, 6, &ts);
+    #
+    # ⚠ v6.6.5: id **4** (CLOCK_MONOTONIC_RAW → mach_continuous_time), not 6. Darwin's
+    # CLOCK_MONOTONIC (6) is `gettimeofday - boottime` in Apple's Libc
+    # (gen/clock_gettime.c) and its `clock_getres` is NSEC_PER_USEC — MICROSECOND
+    # resolution, which is the 1,000 ns tick measured on ecb and ach. lib/sakshi.cyr and
+    # src/backend/common/runtime.cyr `_prof_clock_ns` already passed 4. CHANGELOG [6.6.5].
+    return syscall(228, 4, &ts);
     #endif
     #ifdef CYRIUS_TARGET_WIN
-    # v6.2.13: on Windows syscall(228) routes to kernel32!GetTickCount64, which
-    # RETURNS ms since boot in the return register (not `&ts`). ×1e6 = ns. This is
-    # the monotonic source (uptime; never wraps in practice).
-    return syscall(228, CLOCK_MONOTONIC, &ts) * 1000000;
+    # v6.6.5: QueryPerformanceCounter (PE reroutes 0xF038/0xF039), ~100 ns tick.
+    # v6.2.13 bound this to syscall(228) → kernel32!GetTickCount64, whose counter
+    # advances in **15 ms** steps — so every duration under 15 ms measured as 0 or as
+    # one whole tick, on every cyrius program on Windows. QPC is the monotonic source
+    # (since system start; never wraps in practice). Spelled raw in `_chrono_qpc_ns`
+    # above so this module stays self-sufficient — see the note there.
+    return _chrono_qpc_ns();
     #endif
     #ifndef CYRIUS_TARGET_MACOS
     #ifndef CYRIUS_TARGET_WIN
@@ -183,19 +250,65 @@ fn sleep_ms(ms): i64 {
 var _chrono_mdays = 0;
 fn _chrono_init_mdays(): i64 {
     if (_chrono_mdays != 0) { return 0; }
-    _chrono_mdays = alloc(96);
-    store64(_chrono_mdays, 31);       # Jan
-    store64(_chrono_mdays + 8, 28);   # Feb
-    store64(_chrono_mdays + 16, 31);  # Mar
-    store64(_chrono_mdays + 24, 30);  # Apr
-    store64(_chrono_mdays + 32, 31);  # May
-    store64(_chrono_mdays + 40, 30);  # Jun
-    store64(_chrono_mdays + 48, 31);  # Jul
-    store64(_chrono_mdays + 56, 31);  # Aug
-    store64(_chrono_mdays + 64, 30);  # Sep
-    store64(_chrono_mdays + 72, 31);  # Oct
-    store64(_chrono_mdays + 80, 30);  # Nov
-    store64(_chrono_mdays + 88, 31);  # Dec
+    # ⛔ v6.5.37 — FILL A LOCAL, PUBLISH LAST. The global used to be assigned the
+    # alloc() result on the FIRST statement, so between that assignment and the twelfth
+    # store64 the table was reachable by another thread and READ AS ZEROS. A concurrent
+    # `epoch_to_date` then divided by a zero month length and returned **month 13** —
+    # silent, wrong, and only under threads. Found by a samay v1.0.4 concurrency audit
+    # (docs/development/proposals/2026-08-30-lazy-init-publish-before-fill.md).
+    #
+    # ⚠ This is a CLASS, not an incident: the same audit found the identical shape in
+    # patra's own `src/pcache.cyr` (fixed upstream at patra 1.13.11, folded here at
+    # v6.5.37). ⚠ The proposal originally also named `lib/patra.cyr:453` — that was
+    # misfiled: patra.cyr is a GENERATED bundle and a fix there evaporates on the next
+    # `cyrius distlib`. Fix the source repo, never the fold.
+    #
+    # A tree-wide sweep for `if (_g != 0) { return }` followed by `_g = alloc(...)` with
+    # stores after the publish found this as the ONLY remaining site in lib/, cbt/ and
+    # src/ at 6.5.37.
+    #
+    # Single-threaded callers see no behaviour change: the table is fully built before
+    # anything can observe a non-zero pointer, which is what the guard already promised.
+    var t = alloc(96);
+    store64(t, 31);       # Jan
+    store64(t + 8, 28);   # Feb
+    store64(t + 16, 31);  # Mar
+    store64(t + 24, 30);  # Apr
+    store64(t + 32, 31);  # May
+    store64(t + 40, 30);  # Jun
+    store64(t + 48, 31);  # Jul
+    store64(t + 56, 31);  # Aug
+    store64(t + 64, 30);  # Sep
+    store64(t + 72, 31);  # Oct
+    store64(t + 80, 30);  # Nov
+    store64(t + 88, 31);  # Dec
+    # v6.5.39 — RELEASE FENCE before the publishing store. Filling a local and publishing
+    # last (v6.5.37) fixes the PROGRAM-ORDER race and is mutation-proven on x86: 0 of 400
+    # threaded runs go wrong on the live tree, against 29 of 400 with the pre-.37
+    # publish-first shape restored. It does NOT fix the MEMORY-ORDER race. cyrius emits no
+    # ordering whatsoever for ordinary global access on aarch64 — disassembling a threaded
+    # aarch64 binary built from this file shows the guard read as a plain `ldr`, this
+    # publish as a plain `str`, and the whole binary containing zero `stlr`, zero `ldar`
+    # and exactly one `dmb` (inside atomic_fence's own body). So on a weak model another
+    # thread can observe `_chrono_mdays` non-null before the twelve `store64`s that filled
+    # it — the same month-13 bug, one level down.
+    #
+    # ⚠ AARCH64 ONLY, and the precedent matters. The proposal said to copy
+    # `lib/alloc.cyr:89-98`, which fences on BOTH arches. That is the OLD shape: x86-TSO
+    # already orders store-store, so the fence there is pure tax — measured ~22 ns, 83 % of
+    # the lock cost — and the project deliberately removed it in `lib/freelist.cyr:128-134`
+    # (CHANGELOG [6.5.x]: "a correction, not an omission... the aarch64 release fence is
+    # REQUIRED and is kept"). This copies freelist, not alloc.
+    #
+    # ⚠ The reader is safe with a writer-side fence ONLY because it has an address
+    # dependency on the published pointer (it loads `_chrono_mdays`, then loads through
+    # it), which aarch64 honours. A flag publish with no such dependency needs an acquire
+    # on the reader too — which is why `lib/regex.cyr` is deliberately NOT fenced here.
+    #ifdef CYRIUS_ARCH_AARCH64
+    atomic_fence();
+    #endif
+    _chrono_mdays = t;    # publish only once the table is complete
+
     return 0;
 }
 
