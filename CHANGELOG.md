@@ -50,11 +50,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `cyrius distlib` + `scripts/api-surface.sh` finds all 71 functions and 16 constants. All six
   programs build for Linux and the five CI programs for `--agnos`, with no warnings.
   `cyrius fmt --check` is clean.
-- ⚠ `cyrius audit` exits 1 on both pins, on the same two findings: 56 undocumented public fns, and
-  cyrlint's untracked deferrals, which audit counts as lint warnings. Neither is a CI gate here.
-  6.6.6's cyrlint adds one deferral, the `NOT yet` at `src/output.cyr:12` (it folds case since
-  6.6.5). That header comment is stale anyway: it predates the scanout path and says `blit#39` does
-  not exist. It is left for its own change.
+- ⚠ `cyrius audit` exits 1 on both pins, reporting the same two findings: 56 undocumented public
+  fns, and 5 lines over 120 characters (1 in `tests/bhumi.tcyr`, 4 in `fuzz/bhumi.fcyr`). Neither is
+  a CI gate here. Separately, 6.6.6's cyrlint reports one more untracked deferral than 6.6.2's, the
+  `NOT yet` at `src/output.cyr:12` (it folds case since 6.6.5). That header comment is stale anyway:
+  it predates the scanout path and says `blit#39` does not exist. It is left for its own change.
 - Binaries grow **+4.6 to +8.8 KB**. With DCE off (the default) most of that is unreachable stdlib:
   +6.5 KB in each Linux binary, +7.2 KB in each agnos one. With `CYRIUS_DCE=1`,
   `backend-demo` goes 42,192 → 42,848 B (host) and 32,472 → 33,000 B (`--agnos`).
