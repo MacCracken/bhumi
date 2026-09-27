@@ -14,9 +14,10 @@
 # cryptographically verify them. Capabilities are issued by the seat authority
 # (sigil, the AGNOS auth issuer) and process confinement is kavach's (the
 # sandbox) job. bhumi trusts a capability handed to it and checks possession +
-# scope + expiry. Each capability carries a reserved signature slot (BHUMI_CAP_SIG)
-# so a future bite can add an optional sigil Ed25519 verify hook without changing
-# this model or pulling the crypto stack into the platform layer.
+# scope + expiry. Each capability carries a signature slot (BHUMI_CAP_SIG), and
+# since 0.5.1 the opt-in bhumi_cap_verify checks it through a CALLER-SUPPLIED
+# Ed25519 verifier (e.g. sigil's) — provenance without changing this model or
+# pulling the crypto stack into the platform layer.
 #
 # Flat domain module: no stdlib includes (see src/main.cyr). Depends on the
 # device ops in output.cyr / kbscan.cyr, which precede it in the include chain.
@@ -45,8 +46,8 @@ var BHUMI_SEAT_DENIED = 0 - 2;
 #   +8   devices  bitmask of BHUMI_DEV_* this grants
 #   +16  expiry   epoch seconds after which it is invalid (0 = never expires)
 #   +24  issuer   who granted it (provenance; the seat authority's id)
-#   +32  sig      reserved: pointer to a signature blob (0 = none) — the future
-#                 sigil-verify hook; unused by the lean enforcer
+#   +32  sig      pointer to a signature blob (0 = none) — checked only by the
+#                 opt-in bhumi_cap_verify (0.5.1); the default gate ignores it
 # ================================================================
 
 enum BhumiCapLayout {

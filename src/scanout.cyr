@@ -163,6 +163,31 @@ fn _bhumi_blit_row_bytes(w, fb_w, x): i64 {
     return avail * 4;
 }
 
+# The Linux syscall tables the arm is built for. Ids start at 1, so a 0 never names a table.
+enum BhumiLxAbi {
+    BHUMI_LX_ABI_X86_64  = 1;   # arch/x86/entry/syscalls/syscall_64.tbl
+    BHUMI_LX_ABI_AARCH64 = 2;   # include/uapi/asm-generic/unistd.h — arm64 uses the generic table
+}
+
+# pwrite64's number on Linux table `abi`. -> 18 / 68, or -1 for a table this does not know.
+# ⛔ THE ONE NUMBER THE LINUX ARM STILL SPELLS, because the stdlib peers name ioctl/open/read/close per
+# target but not pwrite64. It is NOT portable: x86_64's 18 is `lookup_dcookie` on aarch64 (ENOSYS on
+# current kernels), which failed every aarch64 present while every x86_64 one worked.
+fn _bhumi_lx_nr_pwrite64(abi): i64 {
+    if (abi == BHUMI_LX_ABI_X86_64)  { return 18; }
+    if (abi == BHUMI_LX_ABI_AARCH64) { return 68; }
+    return 0 - 1;
+}
+
+# pread64's number on Linux table `abi`. -> 17 / 67, or -1. The arm never reads the device; this is
+# for programs/fbdev-probe's independent readback, so the oracle uses the same checked table.
+# ⚠ x86_64's 17 is `getcwd` on aarch64.
+fn _bhumi_lx_nr_pread64(abi): i64 {
+    if (abi == BHUMI_LX_ABI_X86_64)  { return 17; }
+    if (abi == BHUMI_LX_ABI_AARCH64) { return 67; }
+    return 0 - 1;
+}
+
 # ================================================================
 # Kernel seam — the ONLY target-specific code. Exactly one branch compiles.
 #
@@ -176,6 +201,19 @@ fn _bhumi_blit_row_bytes(w, fb_w, x): i64 {
 # ⚠ macOS and Windows keep the -1 stub deliberately: those platforms have their own desktops and
 # bhumi is not competing with them. The stub is a decision, not an omission.
 # ================================================================
+
+# The Linux syscall table THIS build uses, read by the Linux arm and programs/fbdev-probe. It is the
+# seam's one ARCH input, so it is a second flat ladder beside the four target arms, never one nested
+# inside them: cycc predefines exactly one of CYRIUS_ARCH_X86 / CYRIUS_ARCH_AARCH64 on every native
+# build, which makes it mutually exclusive by the same construction.
+# ⚠ It compiles on every target of that arch (agnos and Windows are x86_64 too). That is why it names
+# a TABLE and not a syscall number — only the Linux arm turns it into one.
+#ifdef CYRIUS_ARCH_X86
+var BHUMI_LX_ABI = BHUMI_LX_ABI_X86_64;
+#endif
+#ifdef CYRIUS_ARCH_AARCH64
+var BHUMI_LX_ABI = BHUMI_LX_ABI_AARCH64;
+#endif
 
 #ifdef CYRIUS_TARGET_AGNOS
 # Real agnos kernel calls. sys_fbinfo/sys_blit are the cyrius stdlib wrappers
@@ -200,10 +238,10 @@ fn _bhumi_kblit(src, w, h, dstxy): i64 { return sys_blit(src, w, h, dstxy); }
 # risk. The ONE thing sysfs cannot answer is the channel order, so exactly one ioctl
 # (`FBIOGET_VSCREENINFO`) is issued for the red/blue bit offsets and nothing else.
 #
-# ⛔ NO stdlib additions were needed. `sys_open`/`sys_read`/`sys_close` come from `syscalls` and
-# `memcpy` from `string`, both already in `[deps].stdlib`. `lib/mmap.cyr` is deliberately NOT used —
-# see the pwrite note in `_bhumi_lx_open`. Keeping the dep list unchanged keeps "flat domain module, no
-# stdlib includes" honest.
+# ⛔ NO stdlib additions were needed. `sys_open`/`sys_read`/`sys_close`/`sys_ioctl` come from
+# `syscalls`, already in `[deps].stdlib`. `lib/mmap.cyr` is deliberately NOT used — see the pwrite note
+# in `_bhumi_lx_open`. Keeping the dep list unchanged keeps "flat domain module, no stdlib includes"
+# honest.
 
 var BHUMI_LX_O_RDONLY = 0;
 var BHUMI_LX_O_RDWR   = 2;
@@ -213,12 +251,14 @@ var BHUMI_LX_O_RDWR   = 2;
 # ⚠ The old MAP_PRIVATE warning is retired with the mapping, but the lesson generalises and is worth
 # keeping: the stdlib's `mmap_file_rw` passes MAP_PRIVATE, so any future mapping of a device here
 # must not use it.
-# ⚠ Raw numbers, named locally and on purpose. `SYS_IOCTL` resolves to 16 on the Linux arm but agnos
-# renumbers the enum and `SYS_KILL` is 16 THERE — the mabda shim ADR records that an `enum
-# { SYS_IOCTL = 16 }` "turns every DRM ioctl into a kill() and compiles clean". This arm never
-# compiles on agnos, so the collision cannot fire, but the name is pinned here so it stays that way.
-var BHUMI_LX_SYS_IOCTL  = 16;
-var BHUMI_LX_SYS_PWRITE = 18;
+# ⛔⛔ NO x86_64-ONLY SYSCALL NUMBERS. This arm used to hardcode `ioctl` 16 and `pwrite64` 18, but it
+# also builds for aarch64 Linux (`cyrius build --aarch64`), where 16 is fremovexattr and 18 is
+# lookup_dcookie. The ioctl survived only because cyrius's ESYSXLAT has an x86-compat 16→29 row (cyrius
+# 6.5.38+). Nothing routes 18, so every aarch64 present ran lookup_dcookie, got ENOSYS and failed
+# (traced under `qemu-aarch64 -strace`). ⇒ The ioctl goes through `sys_ioctl`, whose stdlib peer picks
+# 16 or 29. pwrite64 has no stdlib name, so it comes from `_bhumi_lx_nr_pwrite64(BHUMI_LX_ABI)` above.
+# ⚠ Neither can leak onto agnos, where 16 is `kill`: agnos defines no `sys_ioctl`, and this arm
+# never compiles there.
 # fbdev ABI. `fb_var_screeninfo` is 160 bytes; `red`/`green`/`blue` are `struct fb_bitfield`
 # {u32 offset, u32 length, u32 msb_right} at +32 / +44 / +56.
 var BHUMI_LX_FBIOGET_VSCREENINFO = 0x4600;
@@ -259,7 +299,7 @@ fn _bhumi_lx_pxfmt(fd): i64 {
     var vsi[160];
     var z = 0;
     while (z < BHUMI_LX_VSI_SIZE) { store8(&vsi + z, 0); z = z + 1; }
-    if (syscall(BHUMI_LX_SYS_IOCTL, fd, BHUMI_LX_FBIOGET_VSCREENINFO, &vsi) < 0) {
+    if (sys_ioctl(fd, BHUMI_LX_FBIOGET_VSCREENINFO, &vsi) < 0) {
         return BHUMI_PXFMT_BGRX;
     }
     return _bhumi_pxfmt_of_offsets(load32(&vsi + BHUMI_LX_VSI_RED_OFF),
@@ -318,9 +358,10 @@ fn _bhumi_lx_open(): i64 {
 # bytes than asked, and abandoning the rest would tear the frame in a way that looks like a renderer
 # bug rather than an I/O one.
 fn _bhumi_lx_pwrite(fd, buf, n, off): i64 {
+    var nr = _bhumi_lx_nr_pwrite64(BHUMI_LX_ABI);
     var done = 0;
     while (done < n) {
-        var got = syscall(BHUMI_LX_SYS_PWRITE, fd, buf + done, n - done, off + done);
+        var got = syscall(nr, fd, buf + done, n - done, off + done);
         if (got <= 0) { return 0 - 1; }
         done = done + got;
     }

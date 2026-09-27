@@ -29,10 +29,10 @@
 
 include "src/main.cyr"
 
-var FBP_SYS_OPEN   = 2;
-var FBP_SYS_CLOSE  = 3;
-var FBP_SYS_PREAD  = 17;
-var FBP_SYS_PWRITE = 18;
+# ⛔ NO RAW SYSCALL NUMBERS. This probe used to spell x86_64's open 2 / close 3 / pread64 17 /
+# pwrite64 18, but it also builds for aarch64, which has no bare `open`, and where 17 is getcwd and 18
+# is lookup_dcookie. open/close now come from the stdlib peer (`sys_open` / `sys_close`). pread64 and
+# pwrite64 have no stdlib name, so they come from scanout.cyr's checked table for this build's arch.
 var FBP_O_RDONLY   = 0;
 var FBP_O_RDWR     = 2;
 
@@ -54,6 +54,8 @@ fn fbp_num(n) {
 
 fn main(): i64 {
     alloc_init();
+    var nr_pread  = _bhumi_lx_nr_pread64(BHUMI_LX_ABI);
+    var nr_pwrite = _bhumi_lx_nr_pwrite64(BHUMI_LX_ABI);
 
     var info[24];
     if (bhumi_output_query(&info) != BHUMI_FBINFO_SIZE) {
@@ -75,18 +77,18 @@ fn main(): i64 {
 
     # --- save the corner we are about to scribble on -------------------------------------------
     var saved = alloc(FBP_N * FBP_ROWB);
-    var rfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDONLY, 0);
+    var rfd = sys_open("/dev/fb0", FBP_O_RDONLY, 0);
     if (rfd < 0) { fbp_say("fbdev-probe: cannot open /dev/fb0 for reading\n"); return 1; }
     var r = 0;
     while (r < FBP_N) {
-        if (syscall(FBP_SYS_PREAD, rfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) != FBP_ROWB) {
-            syscall(FBP_SYS_CLOSE, rfd);
+        if (syscall(nr_pread, rfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) != FBP_ROWB) {
+            sys_close(rfd);
             fbp_say("fbdev-probe: short read saving the corner\n");
             return 2;
         }
         r = r + 1;
     }
-    syscall(FBP_SYS_CLOSE, rfd);
+    sys_close(rfd);
 
     # --- present a sentinel square THROUGH BHUMI (the code under test) --------------------------
     var fb = bhumi_fb_new(FBP_N, FBP_N);
@@ -98,13 +100,13 @@ fn main(): i64 {
     # Nothing here touches bhumi's mapping. A MAP_PRIVATE backend passes every other check in this
     # file and fails exactly this one.
     var got = alloc(FBP_ROWB);
-    var vfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDONLY, 0);
+    var vfd = sys_open("/dev/fb0", FBP_O_RDONLY, 0);
     if (vfd < 0) { return 3; }
     var seen = 0;
     var bad  = 0;
     r = 0;
     while (r < FBP_N) {
-        if (syscall(FBP_SYS_PREAD, vfd, got, FBP_ROWB, r * pitch) == FBP_ROWB) {
+        if (syscall(nr_pread, vfd, got, FBP_ROWB, r * pitch) == FBP_ROWB) {
             var c = 0;
             while (c < FBP_N) {
                 # Compare 24 bits only: the fb's unused byte is the driver's business, and #92-style
@@ -116,20 +118,20 @@ fn main(): i64 {
         }
         r = r + 1;
     }
-    syscall(FBP_SYS_CLOSE, vfd);
+    sys_close(vfd);
 
     # --- restore, before reporting, so a failing run still leaves a clean screen ----------------
-    var wfd = syscall(FBP_SYS_OPEN, "/dev/fb0", FBP_O_RDWR, 0);
+    var wfd = sys_open("/dev/fb0", FBP_O_RDWR, 0);
     var restored = 0;
     if (wfd >= 0) {
         r = 0;
         while (r < FBP_N) {
-            if (syscall(FBP_SYS_PWRITE, wfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) == FBP_ROWB) {
+            if (syscall(nr_pwrite, wfd, saved + r * FBP_ROWB, FBP_ROWB, r * pitch) == FBP_ROWB) {
                 restored = restored + 1;
             }
             r = r + 1;
         }
-        syscall(FBP_SYS_CLOSE, wfd);
+        sys_close(wfd);
     }
 
     fbp_say("fbdev-probe: sentinel pixels seen through an independent fd: ");

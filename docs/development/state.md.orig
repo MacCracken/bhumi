@@ -100,13 +100,9 @@ lags its own repo by five versions is read as current by the next session; refre
   `programs/fbdev-probe.cyr` through an independent-fd readback.
   See [ADR 0001](../adr/0001-scanout-via-agnos-fbinfo-blit.md) and
   [ADR 0003](../adr/0003-linux-is-a-real-display-target-fbdev-first.md).
-- `src/ptrscan.cyr` — **1.1.4.** Pointer drain: agnos `ptrscan #98` → one merged sample decoded into
-  kind-tagged MOTION/BUTTON events, plus SCROLL (kind 3, the wheel) since 1.4.3: `bhumi_pointer_poll`
-  asks for the 20-byte record and accepts 16 (`bhumi_ptr_record_ok`), so a pre-1.56.49 kernel loses
-  only the wheel. ⛔ Deliberately NOT on the scancode pipe — `dX = 0x01` decodes through the Set-1 table
-  as HID 0x29 = Escape, which the compositor maps to QUIT. **Linux arm since 1.4.0**: not a syscall —
-  it synthesises the 16-byte record from the evdev fold that `src/kbscan.cyr`'s drain keeps, so Linux
-  emits no SCROLL. macOS/Windows return 0.
+- `src/ptrscan.cyr` — **1.1.4.** Pointer drain: agnos `ptrscan #98` → one merged 16-byte sample decoded
+  into kind-tagged MOTION/BUTTON events. ⛔ Deliberately NOT on the scancode pipe — `dX = 0x01` decodes
+  through the Set-1 table as HID 0x29 = Escape, which the compositor maps to QUIT. Host arm returns 0.
   ⚠ This module was missing from this list entirely until 2026-08-12.
 - `src/pattern.cyr` — **M1.** Bring-up test patterns over a `BhumiFb`:
   SMPTE-style color bars and a grayscale XOR gradient — the "known test pattern"
@@ -117,14 +113,10 @@ lags its own repo by five versions is read as current by the next session; refre
   HID usage codes** (page 0x07) + `bhumi_kbd_diff`, which diffs 8-byte HID boot
   keyboard reports into press/release events (release derived from report state).
   Keyboards attach over USB/xHCI HID — agnos has no PS/2.
-- `src/kbscan.cyr` — **M2.** Kernel drain: `bhumi_input_poll`, four flat arms since 1.3.0. agnos
-  drains `kbscan`#42, which delivers raw AT/XT Set-1 scancodes rather than HID reports, decoded by
-  `bhumi_scancode_process` (1.1.0; the HID-report `bhumi_input_process` stays public, but no arm calls
-  it). **Linux arm since 1.3.0**: `/dev/input/event*` `EV_KEY` records through the same Set-1 base
-  table (evdev base codes ARE Set-1 make codes), plus `_bhumi_evdev_ext_to_hid` for the extended keys
-  (1.4.1); autorepeat is dropped. ⛔ Since 1.4.0 that arm's one drain, `_bhumi_lx_drain`, also folds
-  the pointer — both arrive on the same evdev fds and a read consumes. macOS/Windows return 0.
-  Cross-target verified: the `--agnos` binary emits `syscall` `eax=42`.
+- `src/kbscan.cyr` — **M2.** Kernel drain: `bhumi_input_poll` pulls HID reports
+  via agnos `kbscan`#42 and diffs them into events (`sys_kbscan` behind
+  `#ifdef CYRIUS_TARGET_AGNOS`; host stub → 0). Cross-target verified: the
+  `--agnos` binary emits `syscall` `eax=42`.
 - `programs/input-demo.cyr` — **M2 acceptance artifact.** Polls the keyboard and
   prints each key (down/up + HID usage; Esc quits) on agnos; explanatory pass
   off-agnos.

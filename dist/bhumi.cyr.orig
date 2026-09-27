@@ -10,18 +10,18 @@
 # output.cyr is the sovereign replacement for the Linux DRM/KMS half of
 # the compositor backend. It has two halves:
 #
-#   1. PIXEL PRODUCTION (this file) — a software framebuffer: an owned
+#   1. PIXEL PRODUCTION (this bite) — a software framebuffer: an owned
 #      RGBA/XRGB pixel buffer the compositor draws into, entirely in
 #      userland. Testable with no kernel, no device, no display. This is
 #      what a test pattern is rendered into.
 #
-#   2. SCANOUT (src/scanout.cyr, shipped with M1 in v0.2.0) — handing a
-#      finished framebuffer to the screen: agnos `fbinfo#38` / `blit#39`
-#      (landed agnos 1.51.0; ADR 0001), a Linux fbdev arm since 1.2.0
-#      (ADR 0003) that presents with `pwrite` since 1.2.1, and a -1 stub
-#      on macOS/Windows. Whatever the target, a BhumiFb crosses that seam
-#      through one function (bhumi_output_present), and nothing in this
-#      file is target-specific.
+#   2. SCANOUT (a later bite) — handing a finished framebuffer to the
+#      screen via agnodrm → kernel `blit#39`. That kernel ABI is NOT yet
+#      in this checkout (the agnos snapshot here tops out at agnos 1.45.16
+#      / winsize#60; #39 is an unassigned gap), so the scanout seam is
+#      deliberately absent rather than fabricated. When the ABI lands it
+#      plugs in as a single narrow function that consumes a BhumiFb — the
+#      pixel-production surface below does not change.
 #
 # Pixel format contract (XRGB8888, the DRM primary-plane default):
 #   32 bits per pixel, stored little-endian, so a packed value
@@ -765,18 +765,14 @@ fn bhumi_pattern_xor(fb): i64 {
 #
 # input.cyr is the sovereign replacement for the Linux libinput/evdev half of
 # the compositor backend. Keyboards attach over USB/xHCI HID (agnos has no PS/2
-# and never will); the agnos kernel diffs the HID reports itself and hands
-# ring-3 AT/XT Set-1 scancodes via kbscan#42. Like output.cyr this module has
-# two halves:
+# and never will); the kernel drains the xHCI USB-HID ring and hands ring-3 the
+# HID data via kbscan#42. Like output.cyr this module has two halves:
 #
-#   1. EVENT MODEL + HID DECODE (this file) — the normalized, kind-tagged event
-#      stream, and bhumi_kbd_diff, which turns USB HID keyboard reports into key
-#      events. Pure and host-testable.
+#   1. HID DECODE (this bite) — turn USB HID keyboard reports into a normalized
+#      key-event stream, entirely in userland. Pure and host-testable.
 #
-#   2. KERNEL DRAIN (src/kbscan.cyr, v0.3.0; src/ptrscan.cyr, 1.1.4) — pull
-#      input from the kernel. The agnos keyboard arm decodes Set-1 with
-#      bhumi_scancode_process (1.1.0), so no poll arm feeds bhumi_kbd_diff any
-#      more; Linux reads evdev (keyboard 1.3.0, pointer 1.4.0).
+#   2. KERNEL DRAIN (a later bite) — pull HID reports from the kernel via
+#      kbscan#42. That thin syscall wrapper is the only target-specific piece.
 #
 # USB HID keyboard model. A boot-protocol keyboard report is 8 bytes:
 #   +0  modifiers  — bitmap; bit i set = modifier usage (0xE0 + i) is down
@@ -793,9 +789,9 @@ fn bhumi_pattern_xor(fb): i64 {
 # translation, and compose live in the compositor (aethersafha), exactly as
 # libxkbcommon does above evdev. bhumi is the platform layer; no keymap here.
 #
-# POINTER. Shipped in 1.1.4 over agnos `ptrscan #98` (src/ptrscan.cyr) — its
-# own syscall and ring, never the scancode pipe — with the wheel in 1.4.3. The
-# MOTION / BUTTON / SCROLL kinds are defined below, beside the key event.
+# POINTER. The agnos kernel exposes no mouse/pointer/HID-pointer syscall yet
+# (surface tops at kbscan#42, keyboard-only), so pointer input is deliberately
+# absent until that ABI lands — not stubbed with a fabricated one.
 #
 # Flat domain module: no stdlib includes here (see src/main.cyr).
 
@@ -980,19 +976,20 @@ fn bhumi_kbd_diff(prev, cur, out, max_ev): i64 {
 
 # --- kbscan.cyr ---
 
-# @public — bhumi input drain: the kernel handoff (agnos kbscan#42, Linux evdev).
+# @public — bhumi input drain: the kernel handoff (agnos kbscan#42).
 #
-# The events-in counterpart to scanout.cyr. `bhumi_input_poll` has four flat arms since 1.3.0:
-# agnos decodes kbscan#42's Set-1 scancodes (1.1.0), Linux reads evdev (1.3.0) through one drain
-# that also folds the pointer for src/ptrscan.cyr (1.4.0), and macOS/Windows return 0. The decoders
-# and key tables are pure and host-tested; only the drains touch a device.
+# The events-in counterpart to scanout.cyr. Pulls USB HID keyboard reports from
+# the kernel and feeds them through the report-diff decoder in input.cyr. The
+# single sys_kbscan wrapper is the only target-specific code; everything else is
+# pure and host-tested.
 #
-# kbscan#42 (agnos, keyboard-only): sys_kbscan(buf, max) copies up to `max` bytes of raw AT/XT
-# Set-1 scancodes (make + break, incl. 0xE0 prefixes) from the kernel's ring into `buf`,
-# non-blocking; returns the byte count (0 = none). ⚠ Set-1, NOT 8-byte HID reports (the 0.3.0
-# assumption, fixed in 1.1.0): the kernel diffs the USB reports itself, so press/release arrive as
-# make/break and no held state is needed here. The report-diff path (bhumi_input_process) stays
-# public API, but no poll arm uses it. Anything still queued drains on the next poll.
+# kbscan#42 (agnos, keyboard-only): sys_kbscan(buf, max) copies up to `max` bytes
+# of pending USB HID keyboard report data — 8-byte boot keyboard reports — from
+# the kernel's ring into `buf`, non-blocking; returns the byte count (0 = none).
+# bhumi drains whole reports and diffs each against the previous one to derive
+# press/release (HID reports are state, not events). `max` is a multiple of the
+# 8-byte report size so whole reports land per poll; anything still queued drains
+# on the next poll.
 #
 # Flat domain module: no stdlib includes (see src/main.cyr). Depends on
 # input.cyr (bhumi_kbd_diff + the BHUMI_HID_* layout), which precedes it in the
@@ -1160,9 +1157,8 @@ fn _bhumi_evdev_ext_to_hid(code): i64 {
 }
 
 # Map an evdev BTN_* code to bhumi's button bitmask. -> mask, or 0 if not a pointer button.
-# ⚠ Bit 0 LEFT, bit 1 RIGHT, bit 2 MIDDLE — agnos `#98`'s own `buttons` order, so a consumer reads one
-# bitmap on both targets. aethersafha keys window management on bit 0 and, since its 0.16.24, forwards
-# the other two to clients as well.
+# ⚠ Bit 0 is LEFT because that is what the consumer already assumes — aethersafha drives its drag
+# state machine from `input_btn_transitions(..., 1)`, "left button only, for now".
 fn _bhumi_lx_btn_mask(code): i64 {
     if (code == 272) { return 1; }        # BTN_LEFT
     if (code == 273) { return 2; }        # BTN_RIGHT
@@ -1631,10 +1627,9 @@ fn bhumi_pointer_poll(out, max_ev): i64 {
 # cryptographically verify them. Capabilities are issued by the seat authority
 # (sigil, the AGNOS auth issuer) and process confinement is kavach's (the
 # sandbox) job. bhumi trusts a capability handed to it and checks possession +
-# scope + expiry. Each capability carries a signature slot (BHUMI_CAP_SIG), and
-# since 0.5.1 the opt-in bhumi_cap_verify checks it through a CALLER-SUPPLIED
-# Ed25519 verifier (e.g. sigil's) — provenance without changing this model or
-# pulling the crypto stack into the platform layer.
+# scope + expiry. Each capability carries a reserved signature slot (BHUMI_CAP_SIG)
+# so a future bite can add an optional sigil Ed25519 verify hook without changing
+# this model or pulling the crypto stack into the platform layer.
 #
 # Flat domain module: no stdlib includes (see src/main.cyr). Depends on the
 # device ops in output.cyr / kbscan.cyr, which precede it in the include chain.
@@ -1663,8 +1658,8 @@ var BHUMI_SEAT_DENIED = 0 - 2;
 #   +8   devices  bitmask of BHUMI_DEV_* this grants
 #   +16  expiry   epoch seconds after which it is invalid (0 = never expires)
 #   +24  issuer   who granted it (provenance; the seat authority's id)
-#   +32  sig      pointer to a signature blob (0 = none) — checked only by the
-#                 opt-in bhumi_cap_verify (0.5.1); the default gate ignores it
+#   +32  sig      reserved: pointer to a signature blob (0 = none) — the future
+#                 sigil-verify hook; unused by the lean enforcer
 # ================================================================
 
 enum BhumiCapLayout {

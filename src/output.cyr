@@ -3,18 +3,18 @@
 # output.cyr is the sovereign replacement for the Linux DRM/KMS half of
 # the compositor backend. It has two halves:
 #
-#   1. PIXEL PRODUCTION (this bite) — a software framebuffer: an owned
+#   1. PIXEL PRODUCTION (this file) — a software framebuffer: an owned
 #      RGBA/XRGB pixel buffer the compositor draws into, entirely in
 #      userland. Testable with no kernel, no device, no display. This is
 #      what a test pattern is rendered into.
 #
-#   2. SCANOUT (a later bite) — handing a finished framebuffer to the
-#      screen via agnodrm → kernel `blit#39`. That kernel ABI is NOT yet
-#      in this checkout (the agnos snapshot here tops out at agnos 1.45.16
-#      / winsize#60; #39 is an unassigned gap), so the scanout seam is
-#      deliberately absent rather than fabricated. When the ABI lands it
-#      plugs in as a single narrow function that consumes a BhumiFb — the
-#      pixel-production surface below does not change.
+#   2. SCANOUT (src/scanout.cyr, shipped with M1 in v0.2.0) — handing a
+#      finished framebuffer to the screen: agnos `fbinfo#38` / `blit#39`
+#      (landed agnos 1.51.0; ADR 0001), a Linux fbdev arm since 1.2.0
+#      (ADR 0003) that presents with `pwrite` since 1.2.1, and a -1 stub
+#      on macOS/Windows. Whatever the target, a BhumiFb crosses that seam
+#      through one function (bhumi_output_present), and nothing in this
+#      file is target-specific.
 #
 # Pixel format contract (XRGB8888, the DRM primary-plane default):
 #   32 bits per pixel, stored little-endian, so a packed value

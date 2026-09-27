@@ -1,17 +1,16 @@
-# @public — bhumi input drain: the kernel handoff (agnos kbscan#42).
+# @public — bhumi input drain: the kernel handoff (agnos kbscan#42, Linux evdev).
 #
-# The events-in counterpart to scanout.cyr. Pulls USB HID keyboard reports from
-# the kernel and feeds them through the report-diff decoder in input.cyr. The
-# single sys_kbscan wrapper is the only target-specific code; everything else is
-# pure and host-tested.
+# The events-in counterpart to scanout.cyr. `bhumi_input_poll` has four flat arms since 1.3.0:
+# agnos decodes kbscan#42's Set-1 scancodes (1.1.0), Linux reads evdev (1.3.0) through one drain
+# that also folds the pointer for src/ptrscan.cyr (1.4.0), and macOS/Windows return 0. The decoders
+# and key tables are pure and host-tested; only the drains touch a device.
 #
-# kbscan#42 (agnos, keyboard-only): sys_kbscan(buf, max) copies up to `max` bytes
-# of pending USB HID keyboard report data — 8-byte boot keyboard reports — from
-# the kernel's ring into `buf`, non-blocking; returns the byte count (0 = none).
-# bhumi drains whole reports and diffs each against the previous one to derive
-# press/release (HID reports are state, not events). `max` is a multiple of the
-# 8-byte report size so whole reports land per poll; anything still queued drains
-# on the next poll.
+# kbscan#42 (agnos, keyboard-only): sys_kbscan(buf, max) copies up to `max` bytes of raw AT/XT
+# Set-1 scancodes (make + break, incl. 0xE0 prefixes) from the kernel's ring into `buf`,
+# non-blocking; returns the byte count (0 = none). ⚠ Set-1, NOT 8-byte HID reports (the 0.3.0
+# assumption, fixed in 1.1.0): the kernel diffs the USB reports itself, so press/release arrive as
+# make/break and no held state is needed here. The report-diff path (bhumi_input_process) stays
+# public API, but no poll arm uses it. Anything still queued drains on the next poll.
 #
 # Flat domain module: no stdlib includes (see src/main.cyr). Depends on
 # input.cyr (bhumi_kbd_diff + the BHUMI_HID_* layout), which precedes it in the
@@ -179,8 +178,9 @@ fn _bhumi_evdev_ext_to_hid(code): i64 {
 }
 
 # Map an evdev BTN_* code to bhumi's button bitmask. -> mask, or 0 if not a pointer button.
-# ⚠ Bit 0 is LEFT because that is what the consumer already assumes — aethersafha drives its drag
-# state machine from `input_btn_transitions(..., 1)`, "left button only, for now".
+# ⚠ Bit 0 LEFT, bit 1 RIGHT, bit 2 MIDDLE — agnos `#98`'s own `buttons` order, so a consumer reads one
+# bitmap on both targets. aethersafha keys window management on bit 0 and, since its 0.16.24, forwards
+# the other two to clients as well.
 fn _bhumi_lx_btn_mask(code): i64 {
     if (code == 272) { return 1; }        # BTN_LEFT
     if (code == 273) { return 2; }        # BTN_RIGHT

@@ -54,34 +54,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - ⚠ `programs/fbdev-probe.cyr` was built for both arches but not run, because it writes to
   `/dev/fb0`. No aarch64 framebuffer has been driven yet.
 
-### Fixed — comments and state notes that still described shipped work as pending (comment-only)
-
-No code change: all eleven programs (six host, five `--agnos`) build byte-identical to 1.4.5, and
-`dist/bhumi.cyr` differs only in comment lines. `cyrius test` 325/325 (unchanged), `cyrius fuzz`,
-`cyrius distlib --check` and `scripts/api-surface.sh` pass. cyrlint's untracked deferrals across
-`src/` and `programs/` go **5 → 0**, each resolved rather than cross-referenced, because in every
-case the deferred work had already shipped.
-
-- **`src/output.cyr`** — the header's `later bite` / `NOT yet` pair that 1.4.5 left for its own
-  change. It said the scanout seam was "deliberately absent" because `blit#39` was "an unassigned
-  gap", but M1 (0.2.0) shipped `src/scanout.cyr` on agnos `fbinfo#38` / `blit#39`. It now names that
-  file, the Linux fbdev arm (1.2.0, `pwrite` since 1.2.1) and the macOS/Windows `-1` stub.
-- **`src/input.cyr`** — `later bite`: the kernel drain shipped as `src/kbscan.cyr` (0.3.0) and
-  `src/ptrscan.cyr` (1.1.4). The same header said `kbscan#42` hands ring-3 HID data (it hands Set-1
-  scancodes; 1.1.0) and that pointer input was absent until an ABI landed (1.1.4, wheel 1.4.3).
-- **`src/kbscan.cyr`** — `for now`: the button-mask note quoted aethersafha's *"left button only,
-  for now"*, which aethersafha 0.16.24 retired by forwarding right and middle too. It now gives the
-  durable reason for the bit order: agnos `#98`'s own `buttons` bitmap. The file header, which still
-  described 8-byte HID reports and one syscall wrapper as the only target-specific code, now
-  describes the Set-1 wire and the four arms.
-- **`src/seat.cyr`** — `future bite`: the `BHUMI_CAP_SIG` verify hook shipped in 0.5.1 as the opt-in
-  `bhumi_cap_verify`. The header and the `BhumiCap` layout note now say so.
-- **`docs/development/state.md`** — the `src/kbscan.cyr` bullet still said HID reports and "host stub
-  → 0", and the `src/ptrscan.cyr` bullet a "16-byte sample", MOTION/BUTTON only, and "Host arm
-  returns 0". Both now cover the Linux evdev arms (keyboard 1.3.0, pointer 1.4.0, one shared drain)
-  and the 1.4.3 wheel, including that the Linux arm synthesises a 16-byte record and so emits no
-  SCROLL.
-
 ## [1.4.5] - 2026-09-26
 
 ### Changed

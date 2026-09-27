@@ -234,6 +234,35 @@ fn main() {
     assert_eq(_bhumi_fbinfo_rc(24), BHUMI_FBINFO_SIZE, "an already-24 return stays 24");
     assert_eq(_bhumi_fbinfo_rc(0 - 1), -1, "kernel -1 stays a failure");
 
+    # ⛔ The stdlib names ioctl/open/read/close per target but NOT pwrite64/pread64, so these are the
+    # only syscall numbers bhumi still spells. Values are from the kernel UAPI tables, not memory.
+    test_group("scanout.cyr — pwrite64 / pread64 per Linux syscall table (pure)");
+    assert_eq(_bhumi_lx_nr_pwrite64(BHUMI_LX_ABI_X86_64),  18, "x86_64 pwrite64 = 18");
+    assert_eq(_bhumi_lx_nr_pwrite64(BHUMI_LX_ABI_AARCH64), 68, "aarch64 pwrite64 = 68 (its 18 is lookup_dcookie)");
+    assert_eq(_bhumi_lx_nr_pread64(BHUMI_LX_ABI_X86_64),   17, "x86_64 pread64 = 17");
+    assert_eq(_bhumi_lx_nr_pread64(BHUMI_LX_ABI_AARCH64),  67, "aarch64 pread64 = 67 (its 17 is getcwd)");
+    assert_eq(_bhumi_lx_nr_pwrite64(0), -1, "unknown table -> -1, never a guessed number");
+    assert_eq(_bhumi_lx_nr_pread64(0),  -1, "unknown table -> -1");
+
+    #ifdef CYRIUS_TARGET_LINUX
+    # ⭐ THE TABLE CAN BE RIGHT AND THE BUILD CAN STILL PICK THE WRONG ROW, so the row this build picked
+    # is checked against the KERNEL, not against a constant: pwrite through the arm's own helper into an
+    # anonymous memfd, then read it back two independent ways. No device and no file on disk, so there
+    # is nothing to see. `cyrius test --aarch64` runs the same assertions against the aarch64 row.
+    test_group("scanout.cyr — this build's pwrite64 / pread64 reach the kernel (memfd)");
+    var lxmfd = sys_memfd_create("bhumi-test", 1);           # MFD_CLOEXEC
+    assert(lxmfd >= 0, "memfd_create");
+    assert_eq(_bhumi_lx_pwrite(lxmfd, "WXYZ", 4, 8), 0, "arm pwrite: 4 bytes at offset 8");
+    var lxbuf[16];
+    sys_lseek(lxmfd, 0, 0);
+    assert_eq(sys_read(lxmfd, &lxbuf, 16), 12, "  -> 12 bytes: an 8-byte hole, then the 4 written");
+    assert_eq(load32(&lxbuf + 8), 0x5A595857, "  -> the bytes landed AT the offset: WXYZ");
+    store32(&lxbuf, 0);
+    assert_eq(syscall(_bhumi_lx_nr_pread64(BHUMI_LX_ABI), lxmfd, &lxbuf, 4, 8), 4, "pread64: 4 bytes at 8");
+    assert_eq(load32(&lxbuf), 0x5A595857, "  -> reads back what pwrite64 wrote");
+    sys_close(lxmfd);
+    #endif
+
     # ----- edge cases ---------------------------------------------
     test_group("edge cases");
     # 1x1 framebuffer — the smallest valid surface.

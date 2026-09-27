@@ -2,14 +2,18 @@
 #
 # input.cyr is the sovereign replacement for the Linux libinput/evdev half of
 # the compositor backend. Keyboards attach over USB/xHCI HID (agnos has no PS/2
-# and never will); the kernel drains the xHCI USB-HID ring and hands ring-3 the
-# HID data via kbscan#42. Like output.cyr this module has two halves:
+# and never will); the agnos kernel diffs the HID reports itself and hands
+# ring-3 AT/XT Set-1 scancodes via kbscan#42. Like output.cyr this module has
+# two halves:
 #
-#   1. HID DECODE (this bite) — turn USB HID keyboard reports into a normalized
-#      key-event stream, entirely in userland. Pure and host-testable.
+#   1. EVENT MODEL + HID DECODE (this file) — the normalized, kind-tagged event
+#      stream, and bhumi_kbd_diff, which turns USB HID keyboard reports into key
+#      events. Pure and host-testable.
 #
-#   2. KERNEL DRAIN (a later bite) — pull HID reports from the kernel via
-#      kbscan#42. That thin syscall wrapper is the only target-specific piece.
+#   2. KERNEL DRAIN (src/kbscan.cyr, v0.3.0; src/ptrscan.cyr, 1.1.4) — pull
+#      input from the kernel. The agnos keyboard arm decodes Set-1 with
+#      bhumi_scancode_process (1.1.0), so no poll arm feeds bhumi_kbd_diff any
+#      more; Linux reads evdev (keyboard 1.3.0, pointer 1.4.0).
 #
 # USB HID keyboard model. A boot-protocol keyboard report is 8 bytes:
 #   +0  modifiers  — bitmap; bit i set = modifier usage (0xE0 + i) is down
@@ -26,9 +30,9 @@
 # translation, and compose live in the compositor (aethersafha), exactly as
 # libxkbcommon does above evdev. bhumi is the platform layer; no keymap here.
 #
-# POINTER. The agnos kernel exposes no mouse/pointer/HID-pointer syscall yet
-# (surface tops at kbscan#42, keyboard-only), so pointer input is deliberately
-# absent until that ABI lands — not stubbed with a fabricated one.
+# POINTER. Shipped in 1.1.4 over agnos `ptrscan #98` (src/ptrscan.cyr) — its
+# own syscall and ring, never the scancode pipe — with the wheel in 1.4.3. The
+# MOTION / BUTTON / SCROLL kinds are defined below, beside the key event.
 #
 # Flat domain module: no stdlib includes here (see src/main.cyr).
 
